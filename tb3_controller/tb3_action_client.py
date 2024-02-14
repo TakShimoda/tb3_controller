@@ -7,8 +7,8 @@ from rclpy.time  import Time
 from rclpy.duration import Duration
 from geometry_msgs.msg import Twist
 from builtin_interfaces.msg import Time as TimeStamp
-from my_robot_interfaces.action import ContactComputer
-from my_robot_interfaces.msg import RobotStatus
+from tb3_interfaces.action import ContactComputer
+from tb3_interfaces.msg import RobotStatus
 
 #Non-ROS imports
 import argparse, time, yaml

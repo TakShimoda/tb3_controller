@@ -2,8 +2,8 @@
 import rclpy
 from rclpy.action import ActionServer
 from rclpy.node import Node
-from my_robot_interfaces.action import ContactComputer
-from my_robot_interfaces.msg import RobotStatus
+from tb3_interfaces.action import ContactComputer
+from tb3_interfaces.msg import RobotStatus
 
 #Non-ROS imports
 import argparse
