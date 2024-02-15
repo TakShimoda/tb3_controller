@@ -147,7 +147,8 @@ class TB3Node(Node):
         #Initial spinning pattern
         for i in range(4):
             self.vel_publisher.publish(self.cmd_vel)
-            self.get_logger().info(f'Publishing velocity commands x: {self.cmd_vel.linear.x}, theta: {self.cmd_vel.angular.z}')
+            self.get_logger().info(
+                f'Publishing velocity commands x: {self.cmd_vel.linear.x}, theta: {self.cmd_vel.angular.z}')
             time.sleep(0.5)
         
         #Stop
@@ -155,11 +156,12 @@ class TB3Node(Node):
         self.vel_publisher.publish(self.cmd_vel)
 
         #Start trajectory motion
-        self.get_logger().info(f'Finished spin cycle for robot {self.name}. Initiating {self.motion_config["type"]} motion.')
-        if self.motion_config['type'] == 'circular':
-            self.cmd_vel.linear.x = self.motion_config['circular_large']['linear_x']
-            self.cmd_vel.angular.z = self.motion_config['circular_large']['angular_z']
-            self.basic_motion(self.motion_config['circular_large']['num_cmds'], self.motion_config['circular_large']['delay']) 
+        self.get_logger().info(
+            f'Finished spin cycle for robot {self.name}. Initiating {self.motion_config["type"]} motion.')
+        if self.motion_config['type'] == 'circular': 
+            self.cmd_vel.linear.x = self.motion_config['circle']['linear_x']
+            self.cmd_vel.angular.z = self.motion_config['cirle']['linear_x']/self.motion_config['cirle']['radius']
+            self.basic_motion(self.motion_config['circle']['num_cmds'], self.motion_config['circle']['delay']) 
         else:
             self.square_motion()
 
@@ -206,7 +208,7 @@ def main(args=None):
 
     with open(args.config, 'r') as file:
         motion_config = yaml.safe_load(file)
-        print(f"Config file found at: {args.config}")
+        print(f"Motion config file found at: {args.config}")
 
     rclpy.init()
     action_client = TB3Node(args.name, motion_config)

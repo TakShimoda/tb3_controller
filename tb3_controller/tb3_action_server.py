@@ -48,7 +48,7 @@ class ComputerNode(Node):
             self.robot_ids.clear()  # Reset for the next round
         else:
              robot_status.total_reached = False
-             self.get_logger().info(f'{str(len(self.robot_ids))} robots have contacted computer. Latest time:  {str(self.latest_time.sec)}')
+             self.get_logger().info(f'{str(len(self.robot_ids)/self.num_robots)} robots have contacted computer. Latest time:  {str(self.latest_time.sec)}')
         self.success_publisher.publish(robot_status)
         
 
