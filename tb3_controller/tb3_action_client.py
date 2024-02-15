@@ -145,7 +145,7 @@ class TB3Node(Node):
         self.cmd_vel.angular.z = 0.8
 
         #Initial spinning pattern
-        for i in range(4):
+        for i in range(16):
             self.vel_publisher.publish(self.cmd_vel)
             self.get_logger().info(
                 f'Publishing velocity commands x: {self.cmd_vel.linear.x}, theta: {self.cmd_vel.angular.z}')
