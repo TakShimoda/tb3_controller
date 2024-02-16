@@ -7,7 +7,7 @@ from rclpy.time  import Time
 from rclpy.duration import Duration
 from geometry_msgs.msg import Twist
 from builtin_interfaces.msg import Time as TimeStamp
-from tb3_interfaces.action import ContactComputer
+from tb3_interfaces.action import ContactComputer, NavGoal
 from tb3_interfaces.msg import RobotStatus
 
 #Non-ROS imports
@@ -31,12 +31,15 @@ class TB3Node(Node):
         self.log_msg = ''                       #Store log message in case it's the last robot.
         self.last_time = TimeStamp              #Time for last robot
         self.name = name                        #Name of robot
+
+        #Movement parameters
         self.motion_config = motion_config      #Configuration of motion
         self.start = False                      #True/False whether to start moving the robot yet
         self.cmd_vel = Twist()                  #cmd_vel commands to send to the robot
 
         #Action client for initializing robot with computer
         self.client = ActionClient(self, ContactComputer, 'group_trigger')
+        self.navclient = ActionClient(self, NavGoal, 'nav_action')
         #Subscriber for counting total number of robots
         self.subscription = self.create_subscription(
             RobotStatus,
@@ -48,7 +51,6 @@ class TB3Node(Node):
             self.name + "/cmd_vel",
             10)
         
-
     ''''
     Send Goal: contact computer with robot name and current timestamp
         Inputs: None
@@ -130,6 +132,8 @@ class TB3Node(Node):
         self.timer = self.create_timer(delay.nanoseconds/1e9, self.move_robot)
         self.get_logger().info(f'Timer started. Starting in {delay.nanoseconds/1e9} seconds.')
 
+
+#==========MOTION FUNCTIONS==========
     ''''
     Move Robot: move the robot by publishing to /<robot>/cmd_vel
         Inputs: None
@@ -160,7 +164,7 @@ class TB3Node(Node):
             f'Finished spin cycle for robot {self.name}. Initiating {self.motion_config["type"]} motion.')
         if self.motion_config['type'] == 'circular': 
             self.cmd_vel.linear.x = self.motion_config['circle']['linear_x']
-            self.cmd_vel.angular.z = self.motion_config['cirle']['linear_x']/self.motion_config['cirle']['radius']
+            self.cmd_vel.angular.z = self.motion_config['circle']['linear_x']/self.motion_config['circle']['radius']
             self.basic_motion(self.motion_config['circle']['num_cmds'], self.motion_config['circle']['delay']) 
         else:
             self.square_motion()
@@ -199,6 +203,48 @@ class TB3Node(Node):
         self.cmd_vel.linear.x = 0.0
         self.cmd_vel.angular.z = 0.0
         self.vel_publisher.publish(self.cmd_vel)
+
+#==========NAVIGATION FUNCTIONS==========
+    def send_nav_goal(self):
+        goal_msg = NavGoal.Goal()
+        goal_msg.x = 0.0
+        goal_msg.y = 0.0
+        goal_msg.theta = 0.0
+
+        self.client.wait_for_server()
+        self.send_goal_future = self.client.send_goal_async(goal_msg)
+        self.send_goal_future.add_done_callback(self.nav_goal_response_callback)
+    
+    def nav_goal_response_callback(self, future):
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error(f'Planner has rejected goal for {self.name}!')
+            return
+
+        self.get_logger().info(f'Planner has accepted goal for {self.name}')
+        self.result_future = goal_handle.get_result_async()
+        self.result_future.add_done_callback(self.nav_get_result_callback)
+
+    def nav_get_feedback_callback(self, feedback_msg):
+        x_delta = feedback_msg.feedback.y_delta
+        y_delta = feedback_msg.feedback.y_delta
+        theta_delta = feedback_msg.feedback.theta_delta
+        self.get_logger().info(f'Remaining pose difference: x: {x_delta} y: {y_delta} theta: {theta_delta}')
+
+    def nav_get_result_callback(self, future):
+        result = future.result().result
+        self.get_logger().info(f'{self.name} has reached its goal.')
+
+
+# class NavClient(Node):
+#     def __init__(self, name, motion):
+#         super().__init__(name + 'node')
+#         #Movement parameters
+#         self.motion_config = motion      #Configuration of motion
+#         self.start = False                      #True/False whether to start moving the robot yet
+#         self.cmd_vel = Twist()                  #cmd_vel commands to send to the robot
+
+
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
