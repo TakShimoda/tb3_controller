@@ -23,7 +23,9 @@ setup(
             "tb3_client = tb3_controller.tb3_client:main",
             "tb3_server = tb3_controller.tb3_server:main",
             "tb3_action_client = tb3_controller.tb3_action_client:main",
-            "tb3_action_server = tb3_controller.tb3_action_server:main"
+            "tb3_action_server = tb3_controller.tb3_action_server:main",
+            "tb3_nav_action_server = tb3_controller.tb3_nav_action_server:main",
+            "tb3_nav_action_client = tb3_controller.tb3_nav_action_client:main"
         ],
     },
 )

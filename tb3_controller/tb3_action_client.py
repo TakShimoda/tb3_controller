@@ -15,7 +15,7 @@ import argparse, time, yaml
 
 class TB3Node(Node):
 
-    ''''
+    '''
     Constructor
         Inputs: 
             - name(string): the name of the robot instantiated. e.g. B04
@@ -51,7 +51,7 @@ class TB3Node(Node):
             self.name + "/cmd_vel",
             10)
         
-    ''''
+    '''
     Send Goal: contact computer with robot name and current timestamp
         Inputs: None
         Outputs: None
@@ -68,7 +68,7 @@ class TB3Node(Node):
         self.send_goal_future = self.client.send_goal_async(goal_msg)
         self.send_goal_future.add_done_callback(self.goal_response_callback)
 
-    ''''
+    '''
     Goal Response Callback: get computer's response if goal is accepted/rejected
         Inputs: 
             - future(future): holds the accept/reject result
@@ -84,7 +84,7 @@ class TB3Node(Node):
         self.result_future = goal_handle.get_result_async()
         self.result_future.add_done_callback(self.get_result_callback)
 
-    ''''
+    '''
     Goal Response Callback: get response from computer after first calling to it.
         Inputs: 
             - future(future): holds the final result, including the current number of robots
@@ -98,7 +98,7 @@ class TB3Node(Node):
             self.get_logger().info(self.log_msg)
             self.set_timer(self.last_time)
 
-    ''''
+    '''
     Number Robots Callback: callback to subscribe to topic broadcasting number of robots connected
         Inputs: 
             - robot_status: RobotStatus message containing (number of robots, latest time, total robots reached (T/F))
@@ -117,7 +117,7 @@ class TB3Node(Node):
         else:
             self.get_logger().info(f'{robot_status.num_robots} robots currently received by computer. Latest time is {robot_status.timestamp.sec}')
 
-    ''''
+    '''
     Set Timer: set the timer, arbitrarily x seconds after latest robot so all robots start moving together
         Inputs:
             - time_stamp(Time): the time of the last robot to call the computer.  
@@ -134,7 +134,7 @@ class TB3Node(Node):
 
 
 #==========MOTION FUNCTIONS==========
-    ''''
+    '''
     Move Robot: move the robot by publishing to /<robot>/cmd_vel
         Inputs: None
         Outputs: None
@@ -172,7 +172,7 @@ class TB3Node(Node):
         self.get_logger().info(f'{self.name} has finished moving. End')
         self.timer.cancel()
     
-    ''''
+    '''
     Square Motion: move the robot in a square by publishing to /<robot>/cmd_vel
         Inputs: None
         Outputs: None
@@ -188,7 +188,7 @@ class TB3Node(Node):
             self.cmd_vel.angular.z = self.motion_config['basic']['angular_z']
             self.basic_motion(self.motion_config['basic']['num_cmds'], self.motion_config['basic']['delay'])
     
-    ''''
+    '''
     Basic Motion: most basic motion which can involve straight line or turning. Uses delays
         Inputs: None
         Outputs: None
