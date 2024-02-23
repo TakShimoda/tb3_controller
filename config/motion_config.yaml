@@ -1,3 +1,5 @@
+#config for the action server(control)
+
 type: 'circular'  #circular/square
 
 basic:
@@ -6,8 +8,26 @@ basic:
   num_cmds: 10
   delay: 0.5
 
+time:
+  initial_delay: 2.0
+  cmd_delay: 0.5
+
+PID:
+  P: 0.2
+  I: 0.0
+  D: 0.0
+
+diff:
+  x: 0.1
+  y: 0.1 
+  theta: 0.02 #~1 degrees
+
 #Circle defined by radius R = V/W
 #Hard-coded values now; later should programatically calculate x/w values based on radius (arg)
+#Values should ideally be:
+  # Large(2m): v = 0.18, z = 0.09
+  # Medium(1.5m): v = 0.18, z = 0.12
+  # Small(1m): v = 0.18, z = 0.18
 
 circle:
   #So far num_cmds is hardcoded:
@@ -18,27 +38,5 @@ circle:
   radius: 2.0
   linear_x: 0.18
 
-#2 meters
-circ_large:
-  num_cmds: 30
-  delay: 0.5
-  linear_x: 0.18
-  angular_z: 0.09
 
-#1.5 meters
-circ_med:
-  num_cmds: 30
-  delay: 0.5
-  linear_x: 0.18
-  angular_z: 0.12
 
-#1 meter
-circ_small:
-  num_cmds: 30
-  delay: 0.5
-  linear_x: 0.18
-  angular_z: 0.18
-
-time:
-  initial_delay: 2.0
-  cmd_delay: 0.5
