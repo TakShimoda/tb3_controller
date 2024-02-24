@@ -4,12 +4,13 @@ type: 'circular'
 
 square:
   dist: 0.5
-  num_points: 100
+  num_points: 10
 
 circ:
   rad: 2.0
   angle: 90 #angle increments of entire circle in degrees
-  num_points: 100
+  num_points: 10
 
 turn:
   angle: 90 #angle increments of entire turn in degrees
+  num_points: 10
