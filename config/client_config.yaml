@@ -1,6 +1,6 @@
 #config for the action client(goal)
 
-type: 'circular'
+type: 'square'
 
 square:
   dist: 0.5

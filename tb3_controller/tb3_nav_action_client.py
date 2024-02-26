@@ -144,7 +144,7 @@ class NavClientNode(Node):
         #Create initial SE(2)
         SE_2 = np.array([[np.cos(theta), -np.sin(theta), x], 
                     [np.sin(theta), np.cos(theta), y],
-                    [0.0, 0.0, 1.0]])
+                    [0.0, 0.0, 1.0]], dtype=np.float32)
         goal_global = SE_2
 
         #Create local goal to repeatedly right-multiply to robot pose to accumulate waypoints
@@ -154,7 +154,6 @@ class NavClientNode(Node):
 
         for i in range(num_points):
             #calculate global points (x, y, theta)
-            goal_global = goal_global@goal_local
             waypoints.append((goal_global.flatten(), dist_lin, dist_theta, theta))
 
         return waypoints
@@ -200,7 +199,7 @@ class NavClientNode(Node):
                 #Turn
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
                 theta += dist_theta*(i+1)
-                waypoints = self.create_waypoints(type_, 0.0, math.pi/2, x, y, theta)
+                waypoints = self.create_waypoints(type_, 0.0, math.pi/2, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
 
             #Reset the pose to make it equal to the goal pose, to feed into next iteration
@@ -257,25 +256,29 @@ class NavClientNode(Node):
     '''
     def send_all_nav_goals(self, type_):
         goals_queue = self.create_all_goals(type_)
-        for id, goals in enumerate(goals_queue):
-            for waypoints in goals:
-                self.send_nav_goal(waypoints)
-            self.get_logger().info(f'Finished goal number {id}')
-        self.get_logger().info(f'Finished navigating all goals for {type_} motion. Finished.')
+        for goal_id, goals in enumerate(goals_queue):
+            for wp_id, waypoints in enumerate(goals):
+                self.send_nav_goal(waypoints, goal_id, wp_id)
+            self.get_logger().info(f'Finished sending goal {id}')
+        self.get_logger().info(f'Finished sending all goals for {type_} motion.')
+        
     '''
     Send Goal
         Inputs: None 
         Outputs: None
     '''
-    def send_nav_goal(self, waypoint):
+    def send_nav_goal(self, waypoint, goal_id, wp_id):
         goal_msg = NavGoal.Goal()
         goal_msg.x = waypoint[1]
         goal_msg.y = waypoint[2]
         goal_msg.theta = waypoint[2]
         goal_msg.se2 = waypoint[0]    
-        goal_msg.theta_global = waypoint[3]   
+        goal_msg.theta_global = waypoint[3]
+        goal_msg.goal_id = goal_id   
+        goal_msg.wp_id = wp_id
 
-        self.get_logger().info(f'Local waypoint goal is: ({goal_msg.x}, {goal_msg.y}, {goal_msg.theta})')
+        self.get_logger().info(f'Goal number {goal_id}. WP number {wp_id}\n' 
+                               f'Local waypoint goal is: ({goal_msg.x}, {goal_msg.y}, {goal_msg.theta})')
         self.get_logger().info(f'Global waypoint goal is: {waypoint[0]}')
         self.get_logger().info('Waiting for nav client...')
         self.client.wait_for_server()
@@ -308,7 +311,9 @@ class NavClientNode(Node):
         x_delta = feedback_msg.feedback.x_delta
         y_delta = feedback_msg.feedback.y_delta
         theta_delta = feedback_msg.feedback.theta_delta
-        self.get_logger().info(
+        goal_id = feedback_msg.feedback.goal_id
+        wp_id = feedback_msg.feedback.wp_id
+        self.get_logger().info(f'Goal number {goal_id}. WP number {wp_id}\n'
             f'Remaining pose difference: x: {x_delta:.3f} y: {y_delta:.3f} theta: {theta_delta:.3f}')
 
     '''
@@ -318,7 +323,9 @@ class NavClientNode(Node):
     '''
     def nav_get_result_callback(self, future):
         result = future.result().result
-        self.get_logger().info(f'{self.name} has reached its goal.')
+        goal_id = result.goal_id
+        wp_id = result.wp_id
+        self.get_logger().info(f'{self.name} Goal number {goal_id}. WP number {wp_id} has reached its goal.')
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)

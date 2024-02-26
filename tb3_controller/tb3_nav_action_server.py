@@ -15,6 +15,10 @@ import tf_transformations
 #Non-ROS imports
 import argparse, threading, time, yaml
 
+'''
+    TODO: GOAL POLICY: QUEUE GOALS
+'''
+
 class NavNode(Node):
 
     '''
@@ -31,7 +35,10 @@ class NavNode(Node):
         self.timer = self.get_clock().now()         #Timer for frequency of logging vicon topics
         self.thread_lock = threading.Lock()         #For locking parameters in multithreading
         self.cmd_vel =  Twist()                     #Twist message to publish on cmd_vel
-        self.name = name
+        self.name = name                            #Name of robot e.g. B04
+        self.goal_queue = []                        #Queue of goals
+        self.queue_goal = True                      #Queue goal? T/F
+        self.goal_handle: ServerGoalHandle = None   #Current goal handle
 
         #Initial pose (should come from vicon)
         self.pose_x = 0.0
@@ -90,11 +97,12 @@ class NavNode(Node):
         goal_theta = goal_handle.request.theta
         goal_se2 = goal_handle.request.se2
         goal_theta_global = goal_handle.request.theta_global
+        goal_id = goal_handle.request.goal_id
+        wp_id = goal_handle.request.wp_id
 
         #Initialize the action 
-        self.get_logger().info(
-            f'Executing the goal. Heading to global coordinates:' 
-                f' {goal_se2[2]}, {goal_se2[5]}, {goal_theta+self.pose_theta}')
+        self.get_logger().info(f'Executing the goal {goal_id}, waypoint number {wp_id}.' 
+                f' Heading to global coordinates: {goal_se2[2]}, {goal_se2[5]}, {goal_theta+self.pose_theta}')
         feedback = NavGoal.Feedback()
         result = NavGoal.Result()
         
@@ -125,8 +133,15 @@ class NavNode(Node):
         result.x_final = self.pose_x
         result.y_final = self.pose_y
         result.theta_final = self.pose_theta
+        result.goal_id = goal_id
+        result.wp_id = wp_id
+
+        #If we're queuing, execute the next goal inside the queue
+        if self.queue_goal: 
+            self.process_next_goal_in_queue()
         self.get_logger().info(
-            f'Reached final state: {result.x_final:.3f}, {result.y_final:.3f}, {result.theta_final:.3f}')
+            f'Reached final state for goal {goal_id} waypoint {wp_id}: ' 
+            f'{result.x_final:.3f}, {result.y_final:.3f}, {result.theta_final:.3f}')
 
         return result
 
@@ -173,8 +188,10 @@ class NavNode(Node):
     ''' 
     def nav_goal_callback(self, goal_handle: ServerGoalHandle):
         #POLICY: parralel goal execution (to start)
-        self.get_logger().info("Received a goal.")
-        self.get_logger().info("Accepting the goal.")
+        goal_id = goal_handle.goal_id
+        wp_id = goal_handle.wp_id
+        self.get_logger().info(f'Received goal {goal_id} waypoint {wp_id}.')
+        self.get_logger().info(f'Accepting goal {goal_id} waypoint {wp_id}.')
         return GoalResponse.ACCEPT
 
     '''
@@ -214,12 +231,27 @@ class NavNode(Node):
 
     '''
     Handle Accept Callback: How to deal with accepted goal?
+        - If we are queuing goals, then do so. If not, simply execute accepted goals as they come.
         Inputs: goal_handle: ServerGoalHandle
         Outputs: None
     '''  
     def nav_handle_accepted_callback(self, goal_handle: ServerGoalHandle):
-        #For now, nothing
-        pass
+        if self.queue_goal:
+            with self.thread_lock:
+                if self.goal_handle is not None:
+                    self.goal_queue.append(goal_handle)
+                else:
+                    goal_handle.execute()
+        else:
+            goal_handle.execute()
+
+    def process_next_goal(self):
+        with self.thread_lock:
+            if len(self.goal_queue)>0:
+                #remove first element and execute it
+                self.goal_queue.pop(0).execute()
+            else:
+                self.goal_handle = None
 
     '''
     Basic P: Basic P example for linear motion (not for actual turtlebot) DELETE LATER
