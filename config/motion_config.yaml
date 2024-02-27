@@ -22,9 +22,9 @@ PID:
   D: 0.0
 
 diff:
-  x: 0.1
-  y: 0.1 
-  theta: 0.02 #~1 degrees
+  x: 0.05
+  y: 0.05 
+  theta: 0.003 #~0.2 degrees
 
 #Circle defined by radius R = V/W
 #Hard-coded values now; later should programatically calculate x/w values based on radius (arg)

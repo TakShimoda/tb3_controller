@@ -6,6 +6,8 @@ from rclpy.node import Node
 from rclpy.clock import ROSClock, ClockType
 from rclpy.time  import Time
 from rclpy.duration import Duration
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from geometry_msgs.msg import Twist
 from builtin_interfaces.msg import Time as TimeStamp
 from tb3_interfaces.action import NavGoal
@@ -26,6 +28,7 @@ TODO: Make certain functions not node functions but simple functions:
         - linear and angular distance are repetitive and the same for circles/turning, so they should be
             calculated just once. 
         - similar efficiencies can be gained for square, but it still involves straight+turning motion
+    - make sure angular and motion have stacking goal IDs, or make server not accept until angular motion is done
 '''
 
 class NavClientNode(Node):
@@ -48,8 +51,7 @@ class NavClientNode(Node):
         #Parameters
         self.name = name
         self.client_config = client_config
-        self.type = self.client_config['type'] #circular or square
-
+        self.type = self.client_config['type']          #circular or square
     '''
     Create local goal: create local goal once, to repeatedly right-multiply into initial robot-pose
         Inputs: 
@@ -81,47 +83,9 @@ class NavClientNode(Node):
                                 [0, 0, 1]])
 
         np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-        print(f"====local goal======\n{goal_local}\n")
+        print(f'====local waypoint goal for type {type}======\n{goal_local}\n')
 
         return goal_local   
-
-    '''
-    TODO: Delete this or save it in scrap as it's not needed for equidistant waypoints.
-        - It uses repeated calculation of local goals which is redundant for equidistant waypoints
-        - However, it may be useful if more complex waypoints are needed in the future
-    Create goal: create goal in global coordinates
-        Inputs: 
-        - type: (circ/linear/angular)
-        - current pose: (x, y s0_2). so_2 is used so we don't have to convert to get angles
-        Outputs: goal in global coordinates
-    '''
-    def create_goal(self, type, dist_lin, dist_theta, x, y, SO_2):
-        if type == 'circular':
-        #use polar coordinates
-            radius = dist_lin/dist_theta
-            theta_loc = dist_theta
-            x_loc = radius*np.cos(theta_loc) - radius
-            y_loc = radius*np.sin(theta_loc)
-        elif type == 'linear':
-            x_loc = 0.0
-            y_loc = dist_lin
-            theta_loc = 0.0
-        else: #turning/angular
-            x_loc = 0.0
-            y_loc = 0.0
-            theta_loc = dist_theta
-
-        #Define goal in local coordinates
-        goal_local = np.array([[np.cos(theta_loc), -np.sin(theta_loc), x_loc], 
-                                [np.sin(theta_loc), np.cos(theta_loc), y_loc], 
-                                [0, 0, 1]])
-        robot_pose = np.array([[SO_2[0,0], SO_2[0,1], x], 
-                                [SO_2[1,0], SO_2[1,1], y], 
-                                [0, 0, 1]])  
-        #Define goal in global coordinates
-        goal_global = robot_pose@goal_local
-
-        return goal_global
 
     '''
     Create waypoints: create equidistant waypoints in global coordinates, each as goals for server to complete
@@ -150,10 +114,12 @@ class NavClientNode(Node):
         #Create local goal to repeatedly right-multiply to robot pose to accumulate waypoints
         goal_local = self.create_local_goal(type, dist_lin, dist_theta)
         np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-        print(f"====Initial Pose======\n{goal_global}\n")
+        print(f"====Initial Robot Pose======\n{goal_global}\n")
 
         for i in range(num_points):
             #calculate global points (x, y, theta)
+            goal_global = (goal_global@goal_local).astype(dtype=np.float32)
+            theta+=dist_theta
             waypoints.append((goal_global.flatten(), dist_lin, dist_theta, theta))
 
         return waypoints
@@ -169,8 +135,8 @@ class NavClientNode(Node):
         #type_ = self.client_config['type']
         if type_ == 'circular':
             dist_lin =  self.client_config['circ']['rad']*self.client_config['circ']['angle']*math.pi/180.0
-            dist_theta = self.client_config['circ']['angle']
-            num_goals = 360//dist_theta #number of subarcs to take
+            dist_theta = self.client_config['circ']['angle']*math.pi/180.0
+            num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
             num_waypoints = self.client_config['circ']['num_points']
         elif type_ == 'square':
             dist_lin = self.client_config['square']['dist']
@@ -180,31 +146,40 @@ class NavClientNode(Node):
         else: #angular
             #Turn parameters
             dist_lin = 0.0
-            dist_theta = self.client_config['turn']['angle']
-            num_goals = 360//dist_theta
+            dist_theta = self.client_config['turn']['angle']*math.pi/180.0
+            num_goals = int(2*math.pi//dist_theta)
             num_waypoints = self.client_config['turn']['num_points']
             
         #Get poses and properly iterate to get waypoints!
+        self.get_logger().info(f'There are {num_goals} goals and {num_waypoints} waypoints for each.')
         self.get_logger().info("Waiting to get current pose to start planning waypoints ...")
+        self.total_waypoints_goal = num_goals*num_waypoints
         current_pose = self.get_pose()
         x, y, theta = current_pose.x, current_pose.y, current_pose.theta
 
         #Iterate over all subgoals to create all goals
         goals_queue = []
         for i in range(num_goals):
-            waypoints = self.create_waypoints(type_, dist_lin, dist_theta, num_waypoints, x, y, theta)
-            goals_queue.append(waypoints)
+            self.get_logger().info(
+                f'=====Making goal number {i}. x= {x}, y={y}, theta={theta*180.0/math.pi}.=====')
 
             if type_ == 'square':
-                #Turn
-                x, y = waypoints[-1][0][2], waypoints[-1][0][5]
-                theta += dist_theta*(i+1)
-                waypoints = self.create_waypoints(type_, 0.0, math.pi/2, num_waypoints, x, y, theta)
+                #straight
+                waypoints = self.create_waypoints('linear', dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
-
-            #Reset the pose to make it equal to the goal pose, to feed into next iteration
-            x, y = waypoints[-1][0][2], waypoints[-1][0][5]
-            theta += dist_theta*(i+1)
+                x, y = waypoints[-1][0][2], waypoints[-1][0][5]
+                theta += dist_theta
+                #Turn
+                waypoints = self.create_waypoints('angular', 0.0, math.pi/2, num_waypoints, x, y, theta)
+                goals_queue.append(waypoints)
+                x, y = waypoints[-1][0][2], waypoints[-1][0][5]
+                theta += dist_theta
+            else:
+                waypoints = self.create_waypoints(type_, dist_lin, dist_theta, num_waypoints, x, y, theta)
+                goals_queue.append(waypoints)
+                #Reset the pose to make it equal to the goal pose, to feed into next iteration
+                x, y = waypoints[-1][0][2], waypoints[-1][0][5]
+                theta += dist_theta
         return goals_queue
 
     '''
@@ -220,22 +195,8 @@ class NavClientNode(Node):
 
         future = self.pose_client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
-        #future.add_done_callback(self.get_pose_callback)
-        self.get_logger().info(f'The future object returned is: {future}')
         return future.result()
 
-    '''
-    Get pose callback: callback for getting pose
-        Inputs: future 
-        Outputs: None
-    '''
-    def get_pose_callback(self, future):
-        try:
-            response = future.result()
-            self.get_logger().info(
-                f"Got pose: {response.x:.3f}, {response.y:.3f}, {response.theta:.3f} ")
-        except Exception as e:
-            self.get_logger().error("Service call failed %r" %(e,))
 
     '''
     Motion planner: plans all motion, including initial spinning, from beginning to end of program
@@ -243,24 +204,29 @@ class NavClientNode(Node):
         Outputs: None
     '''
     def motion_planner(self):
-        #First start with spinning motion
-        self.send_all_nav_goals('angular')
+        #First start with spinning motion, get the last goal number to stack up the goal queue at once
+        current_goal = 0
+        current_goal = self.send_all_nav_goals('angular', current_goal)
+        #self.get_logger().info(f'The number of goals is: {current_goal}')
         #Then send the specified motion
-        self.send_all_nav_goals(self.type)
-        self.get_logger().info(f'Completed all motion. {self.name} finished.')
+        current_goal = self.send_all_nav_goals(self.type, current_goal)
+       # self.get_logger().info(f'Completed all motion. {self.name} finished.')
 
     '''
     Send all navigation goals
-        Inputs: type: circular, linear, or angular 
+        Inputs: 
+            - type: circular, linear, or angular 
+            - current_goal: the current goal ID in order to stack goal ID of different motions
         Outputs: None
     '''
-    def send_all_nav_goals(self, type_):
+    def send_all_nav_goals(self, type_, current_goal):
         goals_queue = self.create_all_goals(type_)
         for goal_id, goals in enumerate(goals_queue):
             for wp_id, waypoints in enumerate(goals):
-                self.send_nav_goal(waypoints, goal_id, wp_id)
-            self.get_logger().info(f'Finished sending goal {id}')
+                self.send_nav_goal(waypoints, goal_id+current_goal, wp_id)
+            self.get_logger().info(f'Finished sending goal {goal_id}')
         self.get_logger().info(f'Finished sending all goals for {type_} motion.')
+        return len(goals_queue)
         
     '''
     Send Goal
@@ -277,15 +243,17 @@ class NavClientNode(Node):
         goal_msg.goal_id = goal_id   
         goal_msg.wp_id = wp_id
 
-        self.get_logger().info(f'Goal number {goal_id}. WP number {wp_id}\n' 
-                               f'Local waypoint goal is: ({goal_msg.x}, {goal_msg.y}, {goal_msg.theta})')
-        self.get_logger().info(f'Global waypoint goal is: {waypoint[0]}')
-        self.get_logger().info('Waiting for nav client...')
+        # self.get_logger().info(f'===Goal number {goal_id}. WP number {wp_id}===') 
+        # self.get_logger().info(f'Local waypoint goal is: ({goal_msg.x}, {goal_msg.theta})')
+        # self.get_logger().info(f'Global waypoint goal is: {waypoint[0]}')
+        # self.get_logger().info('Waiting for nav client...')
         self.client.wait_for_server()
-        self.get_logger().info("Sending goal.")
+        # self.get_logger().info("Sending goal.")
+
         self.send_goal_future = self.client.send_goal_async(
             goal_msg, feedback_callback=self.nav_get_feedback_callback)
         self.send_goal_future.add_done_callback(self.nav_goal_response_callback)
+        #self.get_logger().info("Sent goal.")
 
     '''
     Goal Response Callback: Goal accepted/rejected?
@@ -295,10 +263,11 @@ class NavClientNode(Node):
     def nav_goal_response_callback(self, future):
         goal_handle = future.result()
         if not goal_handle.accepted:
-            self.get_logger().error(f'Planner has rejected goal for {self.name}!')
+            self.get_logger().error(
+                f'Planner has rejected goal for {self.name}!')
             return
 
-        self.get_logger().info(f'Planner has accepted goal for {self.name}')
+        #self.get_logger().info(f'Planner has accepted goal for {self.name}')
         self.result_future = goal_handle.get_result_async()
         self.result_future.add_done_callback(self.nav_get_result_callback)
 
@@ -314,7 +283,7 @@ class NavClientNode(Node):
         goal_id = feedback_msg.feedback.goal_id
         wp_id = feedback_msg.feedback.wp_id
         self.get_logger().info(f'Goal number {goal_id}. WP number {wp_id}\n'
-            f'Remaining pose difference: x: {x_delta:.3f} y: {y_delta:.3f} theta: {theta_delta:.3f}')
+            f'Remaining pose difference: x: {x_delta:.3f} y: {y_delta:.3f} theta(deg): {theta_delta*180.0/math.pi:.3f}')
 
     '''
     Goal Result Callback: Goal result
@@ -326,6 +295,7 @@ class NavClientNode(Node):
         goal_id = result.goal_id
         wp_id = result.wp_id
         self.get_logger().info(f'{self.name} Goal number {goal_id}. WP number {wp_id} has reached its goal.')
+        self.waypoints_finished += 1
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)

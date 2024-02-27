@@ -5,7 +5,7 @@ from rclpy.action import ActionServer
 from rclpy.action.server import ServerGoalHandle, GoalResponse
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from geometry_msgs.msg import TransformStamped, Twist
 from std_msgs.msg import String
 from tb3_interfaces.action import NavGoal
@@ -13,7 +13,7 @@ from tb3_interfaces.srv import ReturnPose
 import tf_transformations
 
 #Non-ROS imports
-import argparse, threading, time, yaml
+import argparse, math, threading, time, yaml
 
 '''
     TODO: GOAL POLICY: QUEUE GOALS
@@ -32,7 +32,7 @@ class NavNode(Node):
         self.get_logger().info(f'Started navigation node for robot {name}')
 
         #Parameters
-        self.timer = self.get_clock().now()         #Timer for frequency of logging vicon topics
+        self.timer = self.get_clock().now()         #Timer for frequency of logging certain callbacks, e.g. vicon topics
         self.thread_lock = threading.Lock()         #For locking parameters in multithreading
         self.cmd_vel =  Twist()                     #Twist message to publish on cmd_vel
         self.name = name                            #Name of robot e.g. B04
@@ -60,7 +60,8 @@ class NavNode(Node):
             execute_callback=self.nav_execute_callback,
             goal_callback=self.nav_goal_callback,
             cancel_callback=self.nav_cancel_callback,
-            callback_group=ReentrantCallbackGroup())
+            handle_accepted_callback=self.nav_handle_accepted_callback,
+            callback_group=MutuallyExclusiveCallbackGroup())
         
         self.pose_server = self.create_service(ReturnPose, name+'_pose', self.send_pose)
 
@@ -79,8 +80,8 @@ class NavNode(Node):
         response.x = self.pose_x
         response.y = self.pose_y
         response.theta = self.pose_theta
-        self.get_logger().info(
-            f'Received request, {request.topic}, returning pose to client: ({response.x}, {response.y}, {response.theta})')
+        self.get_logger().info(f'Received request, {request.topic}, returning pose to client: '
+                               f'({response.x:.3f}, {response.y:.3f}, {response.theta*180.0/math.pi:.3f})')
         return response
 
     '''
@@ -90,6 +91,10 @@ class NavNode(Node):
         Outputs: None
     '''         
     def nav_execute_callback(self, goal_handle: ServerGoalHandle):
+
+        #Set class attribute goal handle to current goal handle
+        with self.thread_lock:
+            self.goal_handle = goal_handle
         
         #Get request from client
         goal_x = goal_handle.request.x
@@ -102,7 +107,7 @@ class NavNode(Node):
 
         #Initialize the action 
         self.get_logger().info(f'Executing the goal {goal_id}, waypoint number {wp_id}.' 
-                f' Heading to global coordinates: {goal_se2[2]}, {goal_se2[5]}, {goal_theta+self.pose_theta}')
+                f' Heading to global coordinates: {goal_se2[2]:.3f}, {goal_se2[5]:.3f}, {goal_theta_global*180.0/math.pi:.3f}')
         feedback = NavGoal.Feedback()
         result = NavGoal.Result()
         
@@ -115,14 +120,15 @@ class NavNode(Node):
         #If velocities > limits, subtract to get it to limit
         self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
         self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
+        self.get_logger
         self.vel_publisher.publish(self.cmd_vel)
 
         #Calculate the remaining difference between current and goal pose
         diff_x = goal_se2[2] - self.pose_x
         diff_y = goal_se2[5] - self.pose_y
         diff_theta = goal_theta_global - self.pose_theta
-        self.get_logger().info(
-            f'Remaining differences after basic motion control: {diff_x, diff_y, diff_theta}')
+        self.get_logger().info(f'Remaining differences after basic motion control (x, y, theta(deg)): '
+                               f'({diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f})')
 
         self.basic_P(feedback, diff_x, diff_y, diff_theta, goal_se2[2], goal_se2[5], goal_theta_global, goal_handle)
 
@@ -138,7 +144,7 @@ class NavNode(Node):
 
         #If we're queuing, execute the next goal inside the queue
         if self.queue_goal: 
-            self.process_next_goal_in_queue()
+            self.process_next_goal()
         self.get_logger().info(
             f'Reached final state for goal {goal_id} waypoint {wp_id}: ' 
             f'{result.x_final:.3f}, {result.y_final:.3f}, {result.theta_final:.3f}')
@@ -155,8 +161,11 @@ class NavNode(Node):
 
             #Update poses by adding P*difference, only if difference is still above threshold
             self.cmd_vel.linear.x += self.P*diff_x*(abs(diff_x) > self.diff_x)
-            #self.pose_y += self.P*diff_y*(abs(diff_y) > self.diff_y)
             self.cmd_vel.angular.z += self.P*diff_theta*(abs(diff_theta) > self.diff_theta)
+            #If velocities > limits, subtract to get it to limit
+            self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
+            self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
+        
             self.vel_publisher.publish(self.cmd_vel)
 
             #Update pose differential
@@ -169,10 +178,18 @@ class NavNode(Node):
             feedback._y_delta = diff_y
             feedback._theta_delta = diff_theta
             
-            goal_handle.publish_feedback(feedback)
-            self.get_logger().info(
-                f'Current pose {self.pose_x:.3f}, {self.pose_y:.3f}, {self.pose_theta:.3f}')
+            if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
+                with self.thread_lock:
+                    goal_handle.publish_feedback(feedback)
+                    self.get_logger().info(
+                        f'Current pose {self.pose_x:.3f}, {self.pose_y:.3f}, {self.pose_theta:.3f}\n'
+                        f'Remaining pose difference {diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f}')
+                    self.timer = self.get_clock().now()
+            
+            #Reset
             time.sleep(self.delay)
+            # self.cmd_vel.linear.x = 0.0
+            # self.cmd_vel.angular.z = 0.0
 
         #Stop robot when finished
         self.cmd_vel.linear.x = 0.0
@@ -187,7 +204,7 @@ class NavNode(Node):
         Outputs: None
     ''' 
     def nav_goal_callback(self, goal_handle: ServerGoalHandle):
-        #POLICY: parralel goal execution (to start)
+        #POLICY: queue goals (not implemented here)
         goal_id = goal_handle.goal_id
         wp_id = goal_handle.wp_id
         self.get_logger().info(f'Received goal {goal_id} waypoint {wp_id}.')
@@ -208,7 +225,7 @@ class NavNode(Node):
         with self.thread_lock:
             self.pose_x = trans.x
             self.pose_y = trans.y
-            self.pose_theta = r
+            self.pose_theta = y
         
         if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
             with self.thread_lock:
@@ -216,18 +233,6 @@ class NavNode(Node):
                     f'Received vicon pose: ({trans.x:.2f}, {trans.y:.2f}, {trans.z:.2f})'\
                     f' ({r:.2f}, {p:.2f}, {y:.2f})')
                 self.timer = self.get_clock().now()
-
-#############################################
-#========EMPTY FUNCTIONS FOR NOW============#
-#############################################
-    '''
-    Cancel Callback: How to handle canceled goal?
-        Inputs: goal_handle: ServerGoalHandle
-        Outputs: None
-    ''' 
-    def nav_cancel_callback(self, goal_handle: ServerGoalHandle):
-        #For now, nothing
-        pass
 
     '''
     Handle Accept Callback: How to deal with accepted goal?
@@ -240,7 +245,10 @@ class NavNode(Node):
             with self.thread_lock:
                 if self.goal_handle is not None:
                     self.goal_queue.append(goal_handle)
+                    self.goal_queue.sort(key=lambda goal:(goal.request.goal_id, goal.request.wp_id))
+                    print(f'Adding goal {goal_handle.request.goal_id}, waypoint {goal_handle.request.wp_id} to queue')
                 else:
+                    self.get_logger().info('Proceeding to execute accepted goal')
                     goal_handle.execute()
         else:
             goal_handle.execute()
@@ -253,34 +261,17 @@ class NavNode(Node):
             else:
                 self.goal_handle = None
 
+#############################################
+#========EMPTY FUNCTIONS FOR NOW============#
+#############################################
     '''
-    Basic P: Basic P example for linear motion (not for actual turtlebot) DELETE LATER
-        Inputs: feedback, goal_x, goal_y, goal_theta, goal_handle
+    Cancel Callback: How to handle canceled goal?
+        Inputs: goal_handle: ServerGoalHandle
         Outputs: None
     ''' 
-    # def basic_P(self, feedback, diff_x, diff_y, diff_theta, goal_x, goal_y, goal_theta, goal_handle):
-    #     while not (abs(diff_x) < self.diff_x and abs(diff_y) < self.diff_y and abs(diff_theta) < self.diff_theta):
-
-    #         #Update poses by adding P*difference, only if difference is still above threshold
-    #         self.pose_x += self.P*diff_x*(abs(diff_x) > self.diff_x)
-    #         self.pose_y += self.P*diff_y*(abs(diff_y) > self.diff_y)
-    #         self.pose_theta += self.P*diff_theta*(abs(diff_theta) > self.diff_theta)
-
-    #         #Update pose differential
-    #         diff_x = goal_x - self.pose_x
-    #         diff_y = goal_y - self.pose_y
-    #         diff_theta = goal_theta - self.pose_theta
-
-    #         #Send feedback
-    #         feedback._x_delta = diff_x
-    #         feedback._y_delta = diff_y
-    #         feedback._theta_delta = diff_theta
-            
-    #         goal_handle.publish_feedback(feedback)
-    #         self.get_logger().info(
-    #             f'Current pose {self.pose_x:.3f}, {self.pose_y:.3f}, {self.pose_theta:.3f}')
-    #         time.sleep(self.delay)
-    #     return
+    def nav_cancel_callback(self, goal_handle: ServerGoalHandle):
+        #For now, nothing
+        pass
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
