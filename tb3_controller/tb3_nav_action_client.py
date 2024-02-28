@@ -295,7 +295,6 @@ class NavClientNode(Node):
         goal_id = result.goal_id
         wp_id = result.wp_id
         self.get_logger().info(f'{self.name} Goal number {goal_id}. WP number {wp_id} has reached its goal.')
-        self.waypoints_finished += 1
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)

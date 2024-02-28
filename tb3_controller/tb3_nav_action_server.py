@@ -122,13 +122,20 @@ class NavNode(Node):
         self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
         self.get_logger
         self.vel_publisher.publish(self.cmd_vel)
+        time.sleep(self.delay)
+
+        #Reset to zero
+        self.cmd_vel.linear.x = 0.0
+        self.cmd_vel.angular.z = 0.0
+        self.vel_publisher.publish(self.cmd_vel)
 
         #Calculate the remaining difference between current and goal pose
         diff_x = goal_se2[2] - self.pose_x
         diff_y = goal_se2[5] - self.pose_y
         diff_theta = goal_theta_global - self.pose_theta
-        self.get_logger().info(f'Remaining differences after basic motion control (x, y, theta(deg)): '
-                               f'({diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f})')
+        self.get_logger().info(
+            f'Goal {goal_id}, waypoint {wp_id}. Remaining differences after basic motion control (x, y, theta(deg)): '
+            f'({diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f})')
 
         self.basic_P(feedback, diff_x, diff_y, diff_theta, goal_se2[2], goal_se2[5], goal_theta_global, goal_handle)
 
@@ -147,7 +154,10 @@ class NavNode(Node):
             self.process_next_goal()
         self.get_logger().info(
             f'Reached final state for goal {goal_id} waypoint {wp_id}: ' 
-            f'{result.x_final:.3f}, {result.y_final:.3f}, {result.theta_final:.3f}')
+            f'{result.x_final:.3f}, {result.y_final:.3f}, {result.theta_final*180.0/math.pi:.3f}')
+        #set to zero
+        self.cmd_vel.linear.x = 0.0
+        self.cmd_vel.angular.z = 0.0
 
         return result
 
@@ -157,8 +167,8 @@ class NavNode(Node):
         Outputs: None
     ''' 
     def basic_P(self, feedback, diff_x, diff_y, diff_theta, goal_x, goal_y, goal_theta, goal_handle):
+        
         while not (abs(diff_x) < self.diff_x and abs(diff_y) < self.diff_y and abs(diff_theta) < self.diff_theta):
-
             #Update poses by adding P*difference, only if difference is still above threshold
             self.cmd_vel.linear.x += self.P*diff_x*(abs(diff_x) > self.diff_x)
             self.cmd_vel.angular.z += self.P*diff_theta*(abs(diff_theta) > self.diff_theta)
@@ -174,18 +184,20 @@ class NavNode(Node):
             diff_theta = goal_theta - self.pose_theta
 
             #Send feedback
-            feedback._x_delta = diff_x
-            feedback._y_delta = diff_y
-            feedback._theta_delta = diff_theta
+            feedback.x_delta = diff_x
+            feedback.y_delta = diff_y
+            feedback.theta_delta = diff_theta
+            feedback.goal_id = goal_handle.request.goal_id
+            feedback.wp_id = goal_handle.request.wp_id
             
             if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
-                with self.thread_lock:
-                    goal_handle.publish_feedback(feedback)
-                    self.get_logger().info(
-                        f'Current pose {self.pose_x:.3f}, {self.pose_y:.3f}, {self.pose_theta:.3f}\n'
-                        f'Remaining pose difference {diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f}')
-                    self.timer = self.get_clock().now()
-            
+                goal_handle.publish_feedback(feedback)
+                self.get_logger().info(
+                    f'Current pose for goal {goal_handle.request.goal_id}, waypoint {goal_handle.request.wp_id}: ' 
+                    f'{self.pose_x:.3f}, {self.pose_y:.3f}, {self.pose_theta*180.0/math.pi:.3f}\n'
+                    f'Remaining pose difference {diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f}')
+                self.timer = self.get_clock().now()
+        
             #Reset
             time.sleep(self.delay)
             # self.cmd_vel.linear.x = 0.0
@@ -207,8 +219,8 @@ class NavNode(Node):
         #POLICY: queue goals (not implemented here)
         goal_id = goal_handle.goal_id
         wp_id = goal_handle.wp_id
-        self.get_logger().info(f'Received goal {goal_id} waypoint {wp_id}.')
-        self.get_logger().info(f'Accepting goal {goal_id} waypoint {wp_id}.')
+        # self.get_logger().info(f'Received goal {goal_id} waypoint {wp_id}.')
+        # self.get_logger().info(f'Accepting goal {goal_id} waypoint {wp_id}.')
         return GoalResponse.ACCEPT
 
     '''
@@ -229,9 +241,9 @@ class NavNode(Node):
         
         if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
             with self.thread_lock:
-                self.get_logger().info(
-                    f'Received vicon pose: ({trans.x:.2f}, {trans.y:.2f}, {trans.z:.2f})'\
-                    f' ({r:.2f}, {p:.2f}, {y:.2f})')
+                # self.get_logger().info(
+                #     f'Received vicon pose: ({trans.x:.2f}, {trans.y:.2f}, {trans.z:.2f})'\
+                #     f' ({r:.2f}, {p:.2f}, {y:.2f})')
                 self.timer = self.get_clock().now()
 
     '''
@@ -246,9 +258,10 @@ class NavNode(Node):
                 if self.goal_handle is not None:
                     self.goal_queue.append(goal_handle)
                     self.goal_queue.sort(key=lambda goal:(goal.request.goal_id, goal.request.wp_id))
-                    print(f'Adding goal {goal_handle.request.goal_id}, waypoint {goal_handle.request.wp_id} to queue')
+                    #print(f'Adding goal {goal_handle.request.goal_id}, waypoint {goal_handle.request.wp_id} to queue')
                 else:
-                    self.get_logger().info('Proceeding to execute accepted goal')
+                    self.get_logger().info(f'Proceeding to execute accepted goal' 
+                                        f' {goal_handle.request.goal_id}, waypoint {goal_handle.request.wp_id}')
                     goal_handle.execute()
         else:
             goal_handle.execute()
