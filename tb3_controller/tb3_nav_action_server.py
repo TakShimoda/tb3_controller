@@ -121,9 +121,23 @@ class NavNode(Node):
         #If velocities > limits, subtract to get it to limit
         self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
         self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
-        self.get_logger
+
+        #If delay isn't long enough given the velocity, extend it
+        if self.cmd_vel.linear.x == 0: #if straight line/circle
+            if self.cmd_vel.linear.x*self.delay < goal_x:
+                delay = goal_x/self.cmd_vel.linear.x
+            else:
+                delay = self.delay 
+        else: #angular turn
+            if self.cmd_vel.angular.z*self.delay < goal_theta:
+                delay = goal_theta/self.cmd_vel.angular.z
+            else:
+                delay = self.delay
+        
+        self.get_logger().info(
+            f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, {self.cmd_vel.angular.z:.3f} for {delay} seconds')
         self.vel_publisher.publish(self.cmd_vel)
-        time.sleep(self.delay)
+        time.sleep(delay)
 
         #Reset to zero
         self.cmd_vel.linear.x = 0.0
@@ -268,6 +282,12 @@ class NavNode(Node):
         else:
             goal_handle.execute()
 
+    '''
+    Process Next Goal: Process next goal in the queue
+        - Check if queue is empty; if so, set goal handle attribute to none. Else, pop and execute the first goal in queue
+        Inputs: None
+        Outputs: None
+    ''' 
     def process_next_goal(self):
         with self.thread_lock:
             if len(self.goal_queue)>0:

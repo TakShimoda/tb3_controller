@@ -168,7 +168,7 @@ class NavClientNode(Node):
         goals_queue = []
         for i in range(num_goals):
             self.get_logger().info(f'=====Making goal number {i}.' 
-                                   f' Current robot pose (Cartesian): x= {x}, y={y}, theta={theta*180.0/math.pi}.=====')
+                        f' Current robot pose (Cartesian): x= {x:.3f}, y={y:.3f}, theta={theta*180.0/math.pi:.3f}.=====')
 
             if type_ == 'square':
                 #straight
@@ -215,7 +215,6 @@ class NavClientNode(Node):
         #First start with spinning motion, get the last goal number to stack up the goal queue at once
         current_goal = 0
         #current_goal = self.send_all_nav_goals('angular', current_goal)
-        #self.get_logger().info(f'The number of goals is: {current_goal}')
         #Then send the specified motion
         current_goal = self.send_all_nav_goals(self.type, current_goal)
        # self.get_logger().info(f'Completed all motion. {self.name} finished.')
@@ -232,6 +231,8 @@ class NavClientNode(Node):
         for goal_id, goals in enumerate(goals_queue):
             for wp_id, waypoints in enumerate(goals):
                 self.send_nav_goal(waypoints, goal_id+current_goal, wp_id)
+                #sleep to prevent first two goals executing at once
+                time.sleep(0.05)
             self.get_logger().info(f'Finished sending goal {goal_id}')
         self.get_logger().info(f'Finished sending all goals for {type_} motion.')
         return len(goals_queue)
@@ -254,9 +255,9 @@ class NavClientNode(Node):
         goal_msg.goal_id = goal_id   
         goal_msg.wp_id = wp_id
 
-        # self.get_logger().info(f'===Goal number {goal_id}. WP number {wp_id}===') 
-        # self.get_logger().info(f'Local waypoint goal is: ({goal_msg.x}, {goal_msg.theta})')
-        # self.get_logger().info(f'Global waypoint goal is: {waypoint[0]}')
+        self.get_logger().info(f'===Goal number {goal_id}. WP number {wp_id}===') 
+        self.get_logger().info(f'Local waypoint goal is: ({goal_msg.x}, {goal_msg.theta})')
+        self.get_logger().info(f'Global waypoint goal is: {waypoint[0]}')
         # self.get_logger().info('Waiting for nav client...')
         self.client.wait_for_server()
         # self.get_logger().info("Sending goal.")

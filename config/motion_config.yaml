@@ -10,14 +10,14 @@ basic:
 
 time:
   initial_delay: 2.0
-  cmd_delay: 0.2
+  cmd_delay: 0.1
 
 limits:
   x: 0.18
   theta: 0.18
 
 PID:
-  P: 0.2
+  P: 0.01
   I: 0.0
   D: 0.0
 
