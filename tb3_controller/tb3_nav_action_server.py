@@ -40,7 +40,7 @@ class NavNode(Node):
         self.queue_goal = True                      #Queue goal? T/F
         self.goal_handle: ServerGoalHandle = None   #Current goal handle
 
-        #Initial pose (should come from vicon)
+        #Initial pose (vicon coordinates)
         self.pose_x = 0.0
         self.pose_y = 0.0
         self.pose_theta = 0.0
@@ -80,7 +80,7 @@ class NavNode(Node):
         response.x = self.pose_x
         response.y = self.pose_y
         response.theta = self.pose_theta
-        self.get_logger().info(f'Received request, {request.topic}, returning pose to client: '
+        self.get_logger().info(f'Received request, {request.topic}, returning vicon pose to client: '
                                f'({response.x:.3f}, {response.y:.3f}, {response.theta*180.0/math.pi:.3f})')
         return response
 
@@ -104,10 +104,11 @@ class NavNode(Node):
         goal_theta_global = goal_handle.request.theta_global
         goal_id = goal_handle.request.goal_id
         wp_id = goal_handle.request.wp_id
+        x, y = goal_se2[5], -goal_se2[2]
 
         #Initialize the action 
         self.get_logger().info(f'Executing the goal {goal_id}, waypoint number {wp_id}.' 
-                f' Heading to global coordinates: {goal_se2[2]:.3f}, {goal_se2[5]:.3f}, {goal_theta_global*180.0/math.pi:.3f}')
+                f' Heading to global vicon coordinates: {x:.3f}, {y:.3f}, {goal_theta_global*180.0/math.pi:.3f}')
         feedback = NavGoal.Feedback()
         result = NavGoal.Result()
         
@@ -130,14 +131,15 @@ class NavNode(Node):
         self.vel_publisher.publish(self.cmd_vel)
 
         #Calculate the remaining difference between current and goal pose
-        diff_x = goal_se2[2] - self.pose_x
-        diff_y = goal_se2[5] - self.pose_y
+        #Convert the goal se(2) from cartesian to vicon (i.e. x^v = y^p, y^v = -x^p)
+        diff_x = goal_se2[5] - self.pose_x
+        diff_y = -goal_se2[2] - self.pose_y
         diff_theta = goal_theta_global - self.pose_theta
         self.get_logger().info(
             f'Goal {goal_id}, waypoint {wp_id}. Remaining differences after basic motion control (x, y, theta(deg)): '
             f'({diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f})')
 
-        self.basic_P(feedback, diff_x, diff_y, diff_theta, goal_se2[2], goal_se2[5], goal_theta_global, goal_handle)
+        self.basic_P(feedback, diff_x, diff_y, diff_theta, x, y, goal_theta_global, goal_handle)
 
         #Set final goal state
         goal_handle.succeed()
@@ -225,7 +227,7 @@ class NavNode(Node):
 
     '''
     Vicon Pose Callback: Get the vicon pose?
-        Inputs: pose(TransformStamped)
+        Inputs: pose(TransformStamped) - in vicon coordinates (x-forward, y-left)
         Outputs: None
     ''' 
     def vicon_pose_callback(self, pose):

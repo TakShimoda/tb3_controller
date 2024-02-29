@@ -51,7 +51,8 @@ class NavClientNode(Node):
         #Parameters
         self.name = name
         self.client_config = client_config
-        self.type = self.client_config['type']          #circular or square
+        self.type = self.client_config['type']                                  #circular or square
+        
     '''
     Create local goal: create local goal once, to repeatedly right-multiply into initial robot-pose
         Inputs: 
@@ -83,7 +84,6 @@ class NavClientNode(Node):
                                 [0, 0, 1]])
 
         np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-        print(f'====local waypoint goal for type {type}======\n{goal_local}\n')
 
         return goal_local   
 
@@ -98,7 +98,7 @@ class NavClientNode(Node):
             - total_linear: total linear distance
             - total_theta: total angular distance
             - num_points: number of points
-            - (x, y, theta): current robot pose in global coordinates
+            - (x, y, theta): current robot pose in Cartesian global coordinates 
         Outputs: waypoints [(SE(2) as np.array.flatten(), linear increment, angle increment, global theta)]
     '''
     def create_waypoints(self, type, total_linear, total_theta, num_points, x, y, theta):
@@ -115,10 +115,12 @@ class NavClientNode(Node):
         goal_local = self.create_local_goal(type, dist_lin, dist_theta)
         np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
         print(f"====Initial Robot Pose======\n{goal_global}\n")
+        print(f'====local waypoint goal for type {type}, repeated {num_points} times======\n{goal_local}\n')
 
         for i in range(num_points):
-            #calculate global points (x, y, theta)
+            #calculate global points in Cartesian
             goal_global = (goal_global@goal_local).astype(dtype=np.float32)
+            #add the increment to the global theta
             theta+=dist_theta
             waypoints.append((goal_global.flatten(), dist_lin, dist_theta, theta))
 
@@ -155,13 +157,18 @@ class NavClientNode(Node):
         self.get_logger().info("Waiting to get current pose to start planning waypoints ...")
         self.total_waypoints_goal = num_goals*num_waypoints
         current_pose = self.get_pose()
-        x, y, theta = current_pose.x, current_pose.y, current_pose.theta
+
+        #We get poses in vicon coordinates. Convert to Cartesian coordinates (theta remains the same)
+        #x, y = self.transform_coordinates(current_pose, to_vicon=False)
+        x = -current_pose.y
+        y = current_pose.x
+        theta = current_pose.theta
 
         #Iterate over all subgoals to create all goals
         goals_queue = []
         for i in range(num_goals):
-            self.get_logger().info(
-                f'=====Making goal number {i}. x= {x}, y={y}, theta={theta*180.0/math.pi}.=====')
+            self.get_logger().info(f'=====Making goal number {i}.' 
+                                   f' Current robot pose (Cartesian): x= {x}, y={y}, theta={theta*180.0/math.pi}.=====')
 
             if type_ == 'square':
                 #straight
@@ -185,7 +192,7 @@ class NavClientNode(Node):
     '''
     Get pose: contact that server for pose once to start waypoint planning
         Inputs: None 
-        Outputs: ReturnPose.response (x, y, theta)
+        Outputs: ReturnPose.response (x, y, theta) in vicon coordinates
     '''
     def get_pose(self):
         while not self.pose_client.wait_for_service(1.0):
@@ -193,6 +200,7 @@ class NavClientNode(Node):
         request = ReturnPose.Request()
         request.topic = f'vicon/{self.name}/{self.name}'
 
+        #Spin until we get the pose
         future = self.pose_client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
@@ -206,7 +214,7 @@ class NavClientNode(Node):
     def motion_planner(self):
         #First start with spinning motion, get the last goal number to stack up the goal queue at once
         current_goal = 0
-        current_goal = self.send_all_nav_goals('angular', current_goal)
+        #current_goal = self.send_all_nav_goals('angular', current_goal)
         #self.get_logger().info(f'The number of goals is: {current_goal}')
         #Then send the specified motion
         current_goal = self.send_all_nav_goals(self.type, current_goal)
@@ -230,7 +238,10 @@ class NavClientNode(Node):
         
     '''
     Send Goal
-        Inputs: None 
+        Inputs: 
+        - waypoint (se(2) vector, x local, theta local, theta global)
+        - goal_id
+        - wp_id 
         Outputs: None
     '''
     def send_nav_goal(self, waypoint, goal_id, wp_id):
@@ -295,6 +306,22 @@ class NavClientNode(Node):
         goal_id = result.goal_id
         wp_id = result.wp_id
         self.get_logger().info(f'{self.name} Goal number {goal_id}. WP number {wp_id} has reached its goal.')
+
+    '''
+    Transform From Vicon: Transform from vicon coordinates to typical Cartesian coordinates 
+        Inputs: 
+        - pose (x, y, theta) in Vicon coordinates
+        - to_vicon: True/False whether transforming to vicon (or from)
+        Output: pose (x, y, theta) in Cartesian coordinates
+    '''
+    def transform_coordinates(self, pose, to_vicon):
+        if to_vicon:
+            x = pose.y
+            y = -pose.x
+        else: #from vicon
+            x = -pose.y 
+            y = pose.x
+        return x, y
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
