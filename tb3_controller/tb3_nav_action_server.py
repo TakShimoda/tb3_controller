@@ -13,10 +13,12 @@ from tb3_interfaces.srv import ReturnPose
 import tf_transformations
 
 #Non-ROS imports
-import argparse, math, threading, time, yaml
+import argparse, csv, math, threading, time, yaml
+import numpy as np
 
 '''
-    TODO: GOAL POLICY: QUEUE GOALS
+TODO:
+    - Break the nav_execute_callback down into more basic functions to make it more readable
 '''
 
 class NavNode(Node):
@@ -30,6 +32,14 @@ class NavNode(Node):
         super().__init__(name+'_nav_server_node')
 
         self.get_logger().info(f'Started navigation node for robot {name}')
+
+
+        #For PID tuning
+        self.csv_file_path = 'PID_tuning.csv'
+        with open(self.csv_file_path, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['Time', 'Desired Value', 'Current Value'])  # Header
+        self.count = 0  #stop code when count is 1
 
         #Parameters
         self.timer = self.get_clock().now()         #Timer for frequency of logging certain callbacks, e.g. vicon topics
@@ -47,13 +57,17 @@ class NavNode(Node):
 
         #Motion parameters
         self.config = config                        
-        self.P = self.config['PID']['P']
+        self.P_linear = self.config['PID_linear']['P']
+        self.P_angular = self.config['PID_angular']['P']
+        self.I_linear = self.config['PID_linear']['I']
+        self.D_linear = self.config['PID_linear']['D']
         self.diff_x = config['diff']['x']
         self.diff_y = config['diff']['y']
         self.diff_theta = config['diff']['theta']
         self.delay = config['time']['cmd_delay']
         self.x_limit = config['limits']['x']
         self.theta_limit = config['limits']['theta']
+        self.theta_limit_turn = config['limits']['theta_turn']
 
         self.nav_action_server = ActionServer(
             self, NavGoal, 'nav_action',
@@ -108,7 +122,8 @@ class NavNode(Node):
 
         #Initialize the action 
         self.get_logger().info(f'Executing the goal {goal_id}, waypoint number {wp_id}.' 
-                f' Heading to global vicon coordinates: {x:.3f}, {y:.3f}, {goal_theta_global*180.0/math.pi:.3f}')
+                f' Heading to global vicon coordinates: {x:.3f}, {y:.3f}, {goal_theta_global*180.0/math.pi:.3f}\n.'
+                f' Distance in local coordinates: x = {goal_x:.3f}, theta = {goal_theta*180.0/math.pi:.3f}')
         feedback = NavGoal.Feedback()
         result = NavGoal.Result()
         
@@ -118,12 +133,17 @@ class NavNode(Node):
         self.cmd_vel.linear.x = goal_x/self.delay
         self.cmd_vel.angular.z = goal_theta/self.delay
 
-        #If velocities > limits, subtract to get it to limit
+        # If velocities > limits, subtract to set it to the limits. 
+            #For linear, it's 0.18. 
+            #Angle has two limits: 0.18 for linear+angular motion, and 2.8 which is the absolute limit
+            # Don't limit angular (0.18) if it's just turning
         self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
-        self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
+        self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit_turn)*(self.cmd_vel._angular.z-self.theta_limit_turn)
+        if abs(self.cmd_vel.linear.x) >= 0.02:
+            self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
 
         #If delay isn't long enough given the velocity, extend it
-        if self.cmd_vel.linear.x == 0: #if straight line/circle
+        if abs(self.cmd_vel.linear.x) >= 0.02: #if straight line/circle
             if self.cmd_vel.linear.x*self.delay < goal_x:
                 delay = goal_x/self.cmd_vel.linear.x
             else:
@@ -135,9 +155,10 @@ class NavNode(Node):
                 delay = self.delay
         
         self.get_logger().info(
-            f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, {self.cmd_vel.angular.z:.3f} for {delay} seconds')
+            f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, w = {self.cmd_vel.angular.z:.3f} for {delay:.3f} seconds')
         self.vel_publisher.publish(self.cmd_vel)
-        time.sleep(delay)
+        #add a little bit more to delay
+        time.sleep(delay+(delay/20))
 
         #Reset to zero
         self.cmd_vel.linear.x = 0.0
@@ -146,14 +167,18 @@ class NavNode(Node):
 
         #Calculate the remaining difference between current and goal pose
         #Convert the goal se(2) from cartesian to vicon (i.e. x^v = y^p, y^v = -x^p)
-        diff_x = goal_se2[5] - self.pose_x
-        diff_y = -goal_se2[2] - self.pose_y
-        diff_theta = goal_theta_global - self.pose_theta
+        with self.thread_lock:
+            diff_x = goal_se2[5] - self.pose_x
+            diff_y = -goal_se2[2] - self.pose_y
+            diff_theta = goal_theta_global - self.pose_theta
         self.get_logger().info(
             f'Goal {goal_id}, waypoint {wp_id}. Remaining differences after basic motion control (x, y, theta(deg)): '
             f'({diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f})')
 
-        self.basic_P(feedback, diff_x, diff_y, diff_theta, x, y, goal_theta_global, goal_handle)
+        #convert goals to local coordinates
+        diff_local = self.transform_vicon_to_robot(diff_x, diff_y, diff_theta)
+        diff_x_local, diff_y_local = diff_local[0, 2], diff_local[1, 2]
+        self.PID(feedback, diff_x_local, diff_y_local, diff_theta, x, y, goal_theta_global, goal_handle)
 
         #Set final goal state
         goal_handle.succeed()
@@ -175,6 +200,10 @@ class NavNode(Node):
         self.cmd_vel.linear.x = 0.0
         self.cmd_vel.angular.z = 0.0
 
+        if self.count == 1:
+            self.get_logger().info('Destroying node...')
+            self.destroy_node()
+
         return result
 
     '''
@@ -182,22 +211,50 @@ class NavNode(Node):
         Inputs: feedback, goal_x, goal_y, goal_theta, goal_handle
         Outputs: None
     ''' 
-    def basic_P(self, feedback, diff_x, diff_y, diff_theta, goal_x, goal_y, goal_theta, goal_handle):
+    def PID(self, feedback, diff_x_local, diff_y_local, diff_theta, goal_x, goal_y, goal_theta, goal_handle):
         
-        while not (abs(diff_x) < self.diff_x and abs(diff_y) < self.diff_y and abs(diff_theta) < self.diff_theta):
-            #Update poses by adding P*difference, only if difference is still above threshold
-            self.cmd_vel.linear.x += self.P*diff_x*(abs(diff_x) > self.diff_x)
-            self.cmd_vel.angular.z += self.P*diff_theta*(abs(diff_theta) > self.diff_theta)
-            #If velocities > limits, subtract to get it to limit
-            self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
-            self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
-        
-            self.vel_publisher.publish(self.cmd_vel)
+        #Initialize prior values
+        I_lin_prior = 0.0
+        diff_x_local_prior = 0.0
 
-            #Update pose differential
-            diff_x = goal_x - self.pose_x
-            diff_y = goal_y - self.pose_y
-            diff_theta = goal_theta - self.pose_theta
+        while not (abs(diff_x_local) < self.diff_x and abs(diff_y_local) < self.diff_y and abs(diff_theta) < self.diff_theta):
+            #Update poses by adding P*difference, only if difference is still above threshold
+            with self.thread_lock:
+
+                #Integral/Derivatives
+                I_lin = I_lin_prior + diff_x_local*self.delay
+                D_lin = (diff_x_local-diff_x_local_prior)/self.delay
+
+                #Update
+                self.cmd_vel.linear.x = self.P_linear*diff_x_local*(abs(diff_x_local) > self.diff_x)/self.delay\
+                      + (self.I_linear*I_lin) + (self.D_linear*D_lin)
+                self.cmd_vel.angular.z = self.P_angular*diff_theta*(abs(diff_theta) > self.diff_theta)/self.delay
+
+                #If speeds > limits, subtract to get it to limit
+                #self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
+                if self.cmd_vel.linear.x > self.x_limit:
+                    self.cmd_vel.linear.x -= (self.cmd_vel.linear.x-self.x_limit)
+                if self.cmd_vel.linear.x < -self.x_limit:
+                    self.cmd_vel.linear.x -= (self.cmd_vel.linear.x+self.x_limit)
+
+                self.cmd_vel.angular.z -= \
+                    (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
+            
+                self.vel_publisher.publish(self.cmd_vel)
+
+                #Update pose differential in global coordinates
+                diff_x = goal_x - self.pose_x
+                diff_y = goal_y - self.pose_y
+                diff_theta = goal_theta - self.pose_theta
+
+            #Set current values to prior values of next loop in PID
+            I_lin_prior = I_lin
+            diff_x_local_prior = diff_x_local
+
+            #Convert pose differential to local coordinates
+            diff_local = self.transform_vicon_to_robot(goal_x, goal_y, goal_theta)
+            diff_x_local = diff_local[0, 2]
+            diff_y_local = diff_local[1, 2]
 
             #Send feedback
             feedback.x_delta = diff_x
@@ -206,13 +263,19 @@ class NavNode(Node):
             feedback.goal_id = goal_handle.request.goal_id
             feedback.wp_id = goal_handle.request.wp_id
             
-            if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
+            if (self.get_clock().now() - self.timer) > Duration(seconds=0.2):
                 goal_handle.publish_feedback(feedback)
                 self.get_logger().info(
                     f'Current pose for goal {goal_handle.request.goal_id}, waypoint {goal_handle.request.wp_id}: ' 
                     f'{self.pose_x:.3f}, {self.pose_y:.3f}, {self.pose_theta*180.0/math.pi:.3f}\n'
-                    f'Remaining pose difference {diff_x:.3f}, {diff_y:.3f}, {diff_theta*180.0/math.pi:.3f}')
+                    f'Remaining pose difference (global) {diff_x:.5f}, {diff_y:.5f}, {diff_theta*180.0/math.pi:.5f}\n'
+                    f'Remaining pose difference (local) {diff_x_local:.5f}, {diff_y_local:.5f}\n'
+                    f'Current control velocities: x = {self.cmd_vel.linear.x:.5f}, w = {self.cmd_vel.angular.z:.5f}')
                 self.timer = self.get_clock().now()
+            
+            with open(self.csv_file_path, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([time.time(), 0, diff_x_local])
         
             #Reset
             time.sleep(self.delay)
@@ -224,6 +287,7 @@ class NavNode(Node):
         self.cmd_vel.angular.z = 0.0
         self.vel_publisher.publish(self.cmd_vel)
         self.get_logger().info('PID control finished.')
+        #self.count += 1
         return
 
     '''
@@ -239,28 +303,6 @@ class NavNode(Node):
         # self.get_logger().info(f'Accepting goal {goal_id} waypoint {wp_id}.')
         return GoalResponse.ACCEPT
 
-    '''
-    Vicon Pose Callback: Get the vicon pose?
-        Inputs: pose(TransformStamped) - in vicon coordinates (x-forward, y-left)
-        Outputs: None
-    ''' 
-    def vicon_pose_callback(self, pose):
-
-        trans = pose.transform.translation
-        quat = pose.transform.rotation
-        r, p, y = tf_transformations.euler_from_quaternion([quat.x, quat.y, quat.z, quat.w])
-
-        with self.thread_lock:
-            self.pose_x = trans.x
-            self.pose_y = trans.y
-            self.pose_theta = y
-        
-        if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
-            with self.thread_lock:
-                # self.get_logger().info(
-                #     f'Received vicon pose: ({trans.x:.2f}, {trans.y:.2f}, {trans.z:.2f})'\
-                #     f' ({r:.2f}, {p:.2f}, {y:.2f})')
-                self.timer = self.get_clock().now()
 
     '''
     Handle Accept Callback: How to deal with accepted goal?
@@ -295,6 +337,54 @@ class NavNode(Node):
                 self.goal_queue.pop(0).execute()
             else:
                 self.goal_handle = None
+
+    '''
+    Vicon Pose Callback: Get the vicon pose?
+        Inputs: pose(TransformStamped) - in vicon coordinates (x-forward, y-left)
+        Outputs: None
+    ''' 
+    def vicon_pose_callback(self, pose):
+
+        trans = pose.transform.translation
+        quat = pose.transform.rotation
+        r, p, y = tf_transformations.euler_from_quaternion([quat.x, quat.y, quat.z, quat.w])
+
+        with self.thread_lock:
+            #Correct for gimbal lock around 180/-180 degrees
+                # if magnitudes of last/current reading are similar, their magnitudes > 170, and they have opposite signs
+            # if (0.9 < abs(self.pose_theta/y) < 1.10) \
+            #     and abs(self.pose_theta) > 170 and abs(y) > 170 and self.pose_theta/y < 0:
+            if abs(self.pose_theta) > 170 and abs(y) > 170 and self.pose_theta/y < 0 and y < -90:
+                self.get_logger().error('GIMBAL LOCK: CORRECTING.....')
+                y = -y
+
+            self.pose_x = trans.x
+            self.pose_y = trans.y
+            self.pose_theta = y
+        
+        if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
+            with self.thread_lock:
+                # self.get_logger().info(
+                #     f'Received vicon pose: ({trans.x:.2f}, {trans.y:.2f}, {trans.z:.2f})'\
+                #     f' ({r:.2f}, {p:.2f}, {y:.2f})')
+                self.timer = self.get_clock().now()
+
+    '''
+    Transform from Vicon to Robot coordinates. For the purposes of PID correction
+        Inputs: (x, y, theta): position of goal (or goal differential) in global coordinates
+        Outputs: pose_goal_local: SE(2) in local coordinates
+    '''
+    def transform_vicon_to_robot(self, x, y, theta):
+        pose_goal_global = np.array([[np.cos(theta), -np.sin(theta), x],
+                                [np.sin(theta), np.cos(theta), y],
+                                [0, 0, 1]])
+        with self.thread_lock:
+            pose_robot_global = np.array([[np.cos(self.pose_theta), -np.sin(self.pose_theta), self.pose_x],
+                                [np.sin(self.pose_theta), np.cos(self.pose_theta), self.pose_y],
+                                [0, 0, 1]])
+            pose_goal_local = np.linalg.inv(pose_robot_global)@pose_goal_global
+        
+        return pose_goal_local
 
 #############################################
 #========EMPTY FUNCTIONS FOR NOW============#

@@ -21,14 +21,12 @@ import numpy as np
 TODO: Make certain functions not node functions but simple functions:
     - create_waypoints, create_goal
     - these functions don't need self
-    - move create_goal elsewhere as it's not needed now for equidistant waypoints
-    - have create_all_goals directly call create_local_goal to avoid repeatedly passing arguments and 
-        making create_waypoints simpler (see draw.io)
     - right now waypoints are a list of tuples [SE(2) vector, linear distance, angular distance]
         - linear and angular distance are repetitive and the same for circles/turning, so they should be
             calculated just once. 
         - similar efficiencies can be gained for square, but it still involves straight+turning motion
-    - make sure angular and motion have stacking goal IDs, or make server not accept until angular motion is done
+    - make simple way of programatically creating arbitrary waypoint patterns and incorporating into create_all_goals
+        - right now, create_all_goals only works on assumption of circle/square/turning
 '''
 
 class NavClientNode(Node):
@@ -159,7 +157,6 @@ class NavClientNode(Node):
         current_pose = self.get_pose()
 
         #We get poses in vicon coordinates. Convert to Cartesian coordinates (theta remains the same)
-        #x, y = self.transform_coordinates(current_pose, to_vicon=False)
         x = -current_pose.y
         y = current_pose.x
         theta = current_pose.theta
@@ -168,7 +165,7 @@ class NavClientNode(Node):
         goals_queue = []
         for i in range(num_goals):
             self.get_logger().info(f'=====Making goal number {i}.' 
-                        f' Current robot pose (Cartesian): x= {x:.3f}, y={y:.3f}, theta={theta*180.0/math.pi:.3f}.=====')
+                    f' Current robot pose (Cartesian): x= {x:.3f}, y={y:.3f}, theta={theta*180.0/math.pi:.3f}.=====')
 
             if type_ == 'square':
                 #straight
@@ -180,7 +177,7 @@ class NavClientNode(Node):
                 waypoints = self.create_waypoints('angular', 0.0, math.pi/2, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
-                theta += dist_theta
+                theta += math.pi/(2*num_waypoints)
             else:
                 waypoints = self.create_waypoints(type_, dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
@@ -307,22 +304,6 @@ class NavClientNode(Node):
         goal_id = result.goal_id
         wp_id = result.wp_id
         self.get_logger().info(f'{self.name} Goal number {goal_id}. WP number {wp_id} has reached its goal.')
-
-    '''
-    Transform From Vicon: Transform from vicon coordinates to typical Cartesian coordinates 
-        Inputs: 
-        - pose (x, y, theta) in Vicon coordinates
-        - to_vicon: True/False whether transforming to vicon (or from)
-        Output: pose (x, y, theta) in Cartesian coordinates
-    '''
-    def transform_coordinates(self, pose, to_vicon):
-        if to_vicon:
-            x = pose.y
-            y = -pose.x
-        else: #from vicon
-            x = -pose.y 
-            y = pose.x
-        return x, y
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)

@@ -15,16 +15,25 @@ time:
 limits:
   x: 0.18
   theta: 0.18
+  theta_turn: 2.7
 
-PID:
-  P: 0.01
+#Current tuning scheme: Ku = 0.7, Tu = 1.2
+  # PI: P = 0.45Ku = 0.315, I = 0.54Ku/Tu = 0.315
+  # PD: P = 0.8Ku = 0.56, D = 0.1*Ku*Tu = 0.084
+  # No overshoot: P = 0.2Ku = 0.14, I = 0.4Ku/Tu = 2.333, D = 0.056
+PID_linear:
+  P: 0.14 
+  I: 2.333
+  D: 0.056
+PID_angular:
+  P: 0.000
   I: 0.0
   D: 0.0
 
 diff:
-  x: 0.05
-  y: 0.05 
-  theta: 0.003 #~0.2 degrees
+  x: 0.005
+  y: 0.08 
+  theta: 0.15 #~7.5 degrees  #0.009~0.5 degrees
 
 #Circle defined by radius R = V/W
 #Hard-coded values now; later should programatically calculate x/w values based on radius (arg)
