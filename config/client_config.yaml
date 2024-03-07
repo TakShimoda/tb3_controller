@@ -4,7 +4,7 @@ type: 'square'
 
 square:
   dist: 1.0 #in m
-  num_points: 10
+  num_points: 2
 
 circ:
   rad: 2.0

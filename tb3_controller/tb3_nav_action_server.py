@@ -58,9 +58,11 @@ class NavNode(Node):
         #Motion parameters
         self.config = config                        
         self.P_linear = self.config['PID_linear']['P']
-        self.P_angular = self.config['PID_angular']['P']
         self.I_linear = self.config['PID_linear']['I']
         self.D_linear = self.config['PID_linear']['D']
+        self.P_angular = self.config['PID_angular']['P']
+        self.I_angular = self.config['PID_angular']['I']
+        self.D_angular = self.config['PID_angular']['D']
         self.diff_x = config['diff']['x']
         self.diff_y = config['diff']['y']
         self.diff_theta = config['diff']['theta']
@@ -69,6 +71,7 @@ class NavNode(Node):
         self.theta_limit = config['limits']['theta']
         self.theta_limit_turn = config['limits']['theta_turn']
 
+        #Communication objects
         self.nav_action_server = ActionServer(
             self, NavGoal, 'nav_action',
             execute_callback=self.nav_execute_callback,
@@ -138,9 +141,9 @@ class NavNode(Node):
             #Angle has two limits: 0.18 for linear+angular motion, and 2.8 which is the absolute limit
             # Don't limit angular (0.18) if it's just turning
         self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
-        self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit_turn)*(self.cmd_vel._angular.z-self.theta_limit_turn)
+        self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit_turn)*(self.cmd_vel.angular.z-self.theta_limit_turn)
         if abs(self.cmd_vel.linear.x) >= 0.02:
-            self.cmd_vel.angular.z -= (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
+            self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
 
         #If delay isn't long enough given the velocity, extend it
         if abs(self.cmd_vel.linear.x) >= 0.02: #if straight line/circle
@@ -213,42 +216,55 @@ class NavNode(Node):
     ''' 
     def PID(self, feedback, diff_x_local, diff_y_local, diff_theta, goal_x, goal_y, goal_theta, goal_handle):
         
-        #Initialize prior values
-        I_lin_prior = 0.0
+        #Initialize prior values in PID control
+        I_prior_lin = 0.0
         diff_x_local_prior = 0.0
+        I_prior_ang = 0.0
+        diff_theta_prior = 0.0
 
         while not (abs(diff_x_local) < self.diff_x and abs(diff_y_local) < self.diff_y and abs(diff_theta) < self.diff_theta):
             #Update poses by adding P*difference, only if difference is still above threshold
             with self.thread_lock:
 
                 #Integral/Derivatives
-                I_lin = I_lin_prior + diff_x_local*self.delay
+                I_lin = I_prior_lin + diff_x_local*self.delay
                 D_lin = (diff_x_local-diff_x_local_prior)/self.delay
+                I_ang = I_prior_ang + diff_theta*self.delay
+                D_ang = (diff_theta-diff_theta_prior)/self.delay
 
                 #Update
                 self.cmd_vel.linear.x = self.P_linear*diff_x_local*(abs(diff_x_local) > self.diff_x)/self.delay\
-                      + (self.I_linear*I_lin) + (self.D_linear*D_lin)
-                self.cmd_vel.angular.z = self.P_angular*diff_theta*(abs(diff_theta) > self.diff_theta)/self.delay
+                    + (self.I_linear*I_lin) + (self.D_linear*D_lin)
+                self.cmd_vel.angular.z = self.P_angular*diff_theta*(abs(diff_theta) > self.diff_theta)/self.delay\
+                    + (self.I_angular*I_ang) + (self.D_angular*D_ang)
 
                 #If speeds > limits, subtract to get it to limit
-                #self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
                 if self.cmd_vel.linear.x > self.x_limit:
                     self.cmd_vel.linear.x -= (self.cmd_vel.linear.x-self.x_limit)
                 if self.cmd_vel.linear.x < -self.x_limit:
                     self.cmd_vel.linear.x -= (self.cmd_vel.linear.x+self.x_limit)
 
-                self.cmd_vel.angular.z -= \
-                    (self.cmd_vel._angular.z>self.theta_limit)*(self.cmd_vel._angular.z-self.theta_limit)
-            
+                if self.cmd_vel.angular.z > self.theta_limit_turn:
+                    self.cmd_vel.angular.z -= (self.cmd_vel.angular.z-self.theta_limit_turn) 
+                if self.cmd_vel.angular.z < -self.theta_limit_turn:
+                    self.cmd_vel.angular.z -= (self.cmd_vel.angular.z+self.theta_limit_turn)
+                
+                #If moving forward+turn (i.e. circle), limit angular velocity to 0.18 rad/s
+                if abs(self.cmd_vel.linear.x) >= 0.02:
+                    self.cmd_vel.angular.z -= \
+                        (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
+                    
+                #If below minimum, change velocities so they are at the minimum
+
                 self.vel_publisher.publish(self.cmd_vel)
 
-                #Update pose differential in global coordinates
-                diff_x = goal_x - self.pose_x
-                diff_y = goal_y - self.pose_y
-                diff_theta = goal_theta - self.pose_theta
+            #Update pose differential in global coordinates
+            diff_x = goal_x - self.pose_x
+            diff_y = goal_y - self.pose_y
+            diff_theta = goal_theta - self.pose_theta
 
             #Set current values to prior values of next loop in PID
-            I_lin_prior = I_lin
+            I_prior_lin = I_lin
             diff_x_local_prior = diff_x_local
 
             #Convert pose differential to local coordinates
@@ -275,7 +291,7 @@ class NavNode(Node):
             
             with open(self.csv_file_path, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow([time.time(), 0, diff_x_local])
+                writer.writerow([time.time(), 0, diff_theta])
         
             #Reset
             time.sleep(self.delay)
@@ -354,9 +370,10 @@ class NavNode(Node):
                 # if magnitudes of last/current reading are similar, their magnitudes > 170, and they have opposite signs
             # if (0.9 < abs(self.pose_theta/y) < 1.10) \
             #     and abs(self.pose_theta) > 170 and abs(y) > 170 and self.pose_theta/y < 0:
-            if abs(self.pose_theta) > 170 and abs(y) > 170 and self.pose_theta/y < 0 and y < -90:
-                self.get_logger().error('GIMBAL LOCK: CORRECTING.....')
-                y = -y
+            # if abs(self.pose_theta) > 170 and abs(y) > 170 and self.pose_theta/y < 0 and y < -90:
+            if y < 0:
+                #self.get_logger().warn('GIMBAL LOCK: CORRECTING.....')
+                y += 2*math.pi
 
             self.pose_x = trans.x
             self.pose_y = trans.y
@@ -365,8 +382,7 @@ class NavNode(Node):
         if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
             with self.thread_lock:
                 # self.get_logger().info(
-                #     f'Received vicon pose: ({trans.x:.2f}, {trans.y:.2f}, {trans.z:.2f})'\
-                #     f' ({r:.2f}, {p:.2f}, {y:.2f})')
+                #     f'Received vicon pose: ({trans.x:.3f}, {trans.y:.3f}, {y*180/math.pi:.3f})')
                 self.timer = self.get_clock().now()
 
     '''
