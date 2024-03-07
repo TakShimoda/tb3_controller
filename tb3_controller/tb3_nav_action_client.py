@@ -119,7 +119,8 @@ class NavClientNode(Node):
             #calculate global points in Cartesian
             goal_global = (goal_global@goal_local).astype(dtype=np.float32)
             #add the increment to the global theta
-            theta += dist_theta - (2*math.pi*(theta>2*math.pi))
+            theta += dist_theta
+            theta -= (2*math.pi*(theta>2*math.pi))
             waypoints.append((goal_global.flatten(), dist_lin, dist_theta, theta))
 
         return waypoints
@@ -171,18 +172,21 @@ class NavClientNode(Node):
                 waypoints = self.create_waypoints('linear', dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
-                theta += dist_theta - (2*math.pi*(theta>2*math.pi))
+                theta += dist_theta
+                theta -= (2*math.pi*(theta>2*math.pi))
                 #Turn
                 waypoints = self.create_waypoints('angular', 0.0, math.pi/2, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
-                theta += math.pi/(2*num_waypoints) - (2*math.pi*(theta>2*math.pi))
+                theta += math.pi/(2*num_waypoints)
+                theta -= (2*math.pi*(theta>2*math.pi))
             else:
                 waypoints = self.create_waypoints(type_, dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
                 #Reset the pose to make it equal to the goal pose, to feed into next iteration
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
                 theta += dist_theta - (2*math.pi*(theta>2*math.pi))
+                theta -= (2*math.pi*(theta>2*math.pi))
         return goals_queue
 
     '''
