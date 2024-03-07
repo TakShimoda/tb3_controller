@@ -258,10 +258,16 @@ class NavNode(Node):
 
                 self.vel_publisher.publish(self.cmd_vel)
 
-            #Update pose differential in global coordinates
+            #Update pose differential in global coordinates. 
             diff_x = goal_x - self.pose_x
             diff_y = goal_y - self.pose_y
             diff_theta = goal_theta - self.pose_theta
+
+            #Use minimum error for angle to account for discontinuities at 180
+            if diff_theta > math.pi:
+                diff_theta -= 2*math.pi 
+            if diff_theta < -math.pi:
+                diff_theta += 2*math.pi
 
             #Set current values to prior values of next loop in PID
             I_prior_lin = I_lin
@@ -371,9 +377,9 @@ class NavNode(Node):
             # if (0.9 < abs(self.pose_theta/y) < 1.10) \
             #     and abs(self.pose_theta) > 170 and abs(y) > 170 and self.pose_theta/y < 0:
             # if abs(self.pose_theta) > 170 and abs(y) > 170 and self.pose_theta/y < 0 and y < -90:
-            if y < 0:
-                #self.get_logger().warn('GIMBAL LOCK: CORRECTING.....')
-                y += 2*math.pi
+            # if y < 0:
+            #     #self.get_logger().warn('GIMBAL LOCK: CORRECTING.....')
+            #     y += 2*math.pi
 
             self.pose_x = trans.x
             self.pose_y = trans.y
