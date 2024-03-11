@@ -18,7 +18,7 @@ TODO:
     - Break the nav_execute_callback down into more basic functions to make it more readable
 '''
 
-class NavNode(Node):
+class NavServerNode(Node):
 
     '''
     Constructor

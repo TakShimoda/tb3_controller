@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
-from tb3_controller.navnode import NavNode
+from tb3_controller.nav_server_node import NavServerNode
 
 #Non-ROS imports
 import argparse, yaml
@@ -19,7 +19,7 @@ def main(args=None):
         print(f"Motion config file found at: {args.config}")
 
     rclpy.init()
-    node = NavNode(args.name, motion_config)
+    node = NavServerNode(args.name, motion_config)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     executor.spin()
