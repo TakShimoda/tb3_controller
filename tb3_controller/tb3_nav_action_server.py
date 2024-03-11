@@ -70,6 +70,7 @@ class NavNode(Node):
         self.x_limit = config['limits']['x']
         self.theta_limit = config['limits']['theta']
         self.theta_limit_turn = config['limits']['theta_turn']
+        self.num_points = config['line']['num_points']
 
         #Communication objects
         self.nav_action_server = ActionServer(
@@ -103,17 +104,17 @@ class NavNode(Node):
 
     '''
     Execute Callback: Execute the goal
-        Inputs: goal_handle: ServerGoalHandle
+        Input: goal_handle: ServerGoalHandle
         - goals are already in the local frame, so no differential calculation is needed
         Outputs: None
     '''         
     def nav_execute_callback(self, goal_handle: ServerGoalHandle):
 
-        #Set class attribute goal handle to current goal handle
+        # Set class attribute goal handle to current goal handle
         with self.thread_lock:
             self.goal_handle = goal_handle
         
-        #Get request from client
+        # Get request from client
         goal_x = goal_handle.request.x
         goal_y = goal_handle.request.y
         goal_theta = goal_handle.request.theta
@@ -123,45 +124,56 @@ class NavNode(Node):
         wp_id = goal_handle.request.wp_id
         x, y = goal_se2[5], -goal_se2[2]
 
-        #Initialize the action 
+        # Initialize the action 
         self.get_logger().info(f'Executing the goal {goal_id}, waypoint number {wp_id}.' 
                 f' Heading to global vicon coordinates: {x:.3f}, {y:.3f}, {goal_theta_global*180.0/math.pi:.3f}\n.'
                 f' Distance in local coordinates: x = {goal_x:.3f}, theta = {goal_theta*180.0/math.pi:.3f}')
         feedback = NavGoal.Feedback()
         result = NavGoal.Result()
         
-        #First do primitive calculated motions, then finish with P-controller
+        # First do primitive calculated motions, then finish with P-controller
         self.get_logger().info('Initiating basic motion control...')
 
         self.cmd_vel.linear.x = goal_x/self.delay
         self.cmd_vel.angular.z = goal_theta/self.delay
 
         # If velocities > limits, subtract to set it to the limits. 
-            #For linear, it's 0.18. 
-            #Angle has two limits: 0.18 for linear+angular motion, and 2.8 which is the absolute limit
-            # Don't limit angular (0.18) if it's just turning
+            # For linear, it's 0.18. 
+            # Angle has two limits: 0.18 for linear+angular motion, and 2.6 which is the absolute limit
+            # Don't limit angular to 0.18 if it's just turning
         self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
-        self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit_turn)*(self.cmd_vel.angular.z-self.theta_limit_turn)
-        if abs(self.cmd_vel.linear.x) >= 0.02:
+        self.cmd_vel.angular.z -= \
+            (self.cmd_vel.angular.z>self.theta_limit_turn)*(self.cmd_vel.angular.z-self.theta_limit_turn)
+        if abs(self.cmd_vel.linear.x) >= 0.02: #if circular
             self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
 
-        #If delay isn't long enough given the velocity, extend it
-        if abs(self.cmd_vel.linear.x) >= 0.02: #if straight line/circle
-            if self.cmd_vel.linear.x*self.delay < goal_x:
-                delay = goal_x/self.cmd_vel.linear.x
-            else:
-                delay = self.delay 
-        else: #angular turn
-            if self.cmd_vel.angular.z*self.delay < goal_theta:
-                delay = goal_theta/self.cmd_vel.angular.z
-            else:
-                delay = self.delay
-        
-        self.get_logger().info(
-            f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, w = {self.cmd_vel.angular.z:.3f} for {delay:.3f} seconds')
-        self.vel_publisher.publish(self.cmd_vel)
-        #add a little bit more to delay
-        time.sleep(delay+(delay/20))
+        # If straight line
+        if (abs(self.cmd_vel.angular.z) <= 0.001 and abs(self.cmd_vel.linear.x) >= 0.02):
+            with self.thread_lock:
+                diff_theta = goal_theta_global - self.pose_theta 
+            self.PID_straight(goal_x, diff_theta, goal_theta_global)
+
+        else:
+            # If delay isn't long enough given the velocity, extend it
+            if abs(self.cmd_vel.linear.x) >= 0.02: #if straight line/circle
+                if self.cmd_vel.linear.x*self.delay < goal_x:
+                    delay = goal_x/self.cmd_vel.linear.x
+                else:
+                    delay = self.delay 
+            else: #angular turn
+                if self.cmd_vel.angular.z*self.delay < goal_theta:
+                    delay = goal_theta/self.cmd_vel.angular.z
+                else:
+                    delay = self.delay
+            
+            self.get_logger().info(
+                f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, w = {self.cmd_vel.angular.z:.3f} for {delay:.3f} seconds')
+            self.vel_publisher.publish(self.cmd_vel)
+
+            #add a little bit more to delay for rotation
+            if abs(self.cmd_vel.linear.x) <= 0.01:
+                delay+=delay/10
+            time.sleep(delay)
 
         #Reset to zero
         self.cmd_vel.linear.x = 0.0
@@ -187,9 +199,10 @@ class NavNode(Node):
         goal_handle.succeed()
 
         #Set and return the result
-        result.x_final = self.pose_x
-        result.y_final = self.pose_y
-        result.theta_final = self.pose_theta
+        with self.thread_lock:
+            result.x_final = self.pose_x
+            result.y_final = self.pose_y
+            result.theta_final = self.pose_theta
         result.goal_id = goal_id
         result.wp_id = wp_id
 
@@ -210,8 +223,8 @@ class NavNode(Node):
         return result
 
     '''
-    Basic P: Basic P example for linear motion
-        Inputs: feedback, goal_x, goal_y, goal_theta, goal_handle
+    PID: PID example for linear motion
+        Inputs: feedback, local x diff, local y diff, theta diff, goal_x, goal_y, goal_theta, goal_handle
         Outputs: None
     ''' 
     def PID(self, feedback, diff_x_local, diff_y_local, diff_theta, goal_x, goal_y, goal_theta, goal_handle):
@@ -233,10 +246,10 @@ class NavNode(Node):
                 D_ang = (diff_theta-diff_theta_prior)/self.delay
 
                 #Update
-                self.cmd_vel.linear.x = self.P_linear*diff_x_local*(abs(diff_x_local) > self.diff_x)/self.delay\
-                    + (self.I_linear*I_lin) + (self.D_linear*D_lin)
-                self.cmd_vel.angular.z = self.P_angular*diff_theta*(abs(diff_theta) > self.diff_theta)/self.delay\
-                    + (self.I_angular*I_ang) + (self.D_angular*D_ang)
+                self.cmd_vel.linear.x = (self.P_linear*diff_x_local/self.delay\
+                    + (self.I_linear*I_lin) + (self.D_linear*D_lin))*(abs(diff_x_local) > self.diff_x)
+                self.cmd_vel.angular.z = (self.P_angular*diff_theta/self.delay\
+                    + (self.I_angular*I_ang) + (self.D_angular*D_ang))*(abs(diff_theta) > self.diff_theta)
 
                 #If speeds > limits, subtract to get it to limit
                 if self.cmd_vel.linear.x > self.x_limit:
@@ -257,11 +270,12 @@ class NavNode(Node):
                 #If below minimum, change velocities so they are at the minimum
 
                 self.vel_publisher.publish(self.cmd_vel)
+                time.sleep(self.delay)
 
-            #Update pose differential in global coordinates. 
-            diff_x = goal_x - self.pose_x
-            diff_y = goal_y - self.pose_y
-            diff_theta = goal_theta - self.pose_theta
+                #Update pose differential in global coordinates. 
+                diff_x = goal_x - self.pose_x
+                diff_y = goal_y - self.pose_y
+                diff_theta = goal_theta - self.pose_theta
 
             #Use minimum error for angle to account for discontinuities at 180
             if diff_theta > math.pi:
@@ -272,6 +286,8 @@ class NavNode(Node):
             #Set current values to prior values of next loop in PID
             I_prior_lin = I_lin
             diff_x_local_prior = diff_x_local
+            I_prior_ang = I_ang
+            diff_theta_prior = diff_theta
 
             #Convert pose differential to local coordinates
             diff_local = self.transform_vicon_to_robot(goal_x, goal_y, goal_theta)
@@ -300,7 +316,6 @@ class NavNode(Node):
                 writer.writerow([time.time(), 0, diff_theta])
         
             #Reset
-            time.sleep(self.delay)
             # self.cmd_vel.linear.x = 0.0
             # self.cmd_vel.angular.z = 0.0
 
@@ -310,6 +325,79 @@ class NavNode(Node):
         self.vel_publisher.publish(self.cmd_vel)
         self.get_logger().info('PID control finished.')
         #self.count += 1
+        return
+
+    '''
+    PID Straight: PID for correcting angles for straight line motion
+        Inputs: feedback, goal_x, goal_y, goal_theta, goal_handle
+        Outputs: None
+    ''' 
+    def PID_straight(self, goal_x, diff_theta, setpoint_theta):
+
+        # Scaling factor, as movement shouldn't diverge from being straight
+        scale=0.7
+
+        # Initialize prior values in PID control
+        I_prior_ang = 0.0
+        diff_theta_prior = 0.0
+
+        # Calculate number of points given the goal distance, velocity, and delay
+        num_points = int(goal_x//(self.cmd_vel.linear.x*self.delay))
+        remainder = goal_x/(self.cmd_vel.linear.x*self.delay) - num_points
+
+        for _ in range(num_points):
+            with self.thread_lock:
+                # Integral/Derivatives
+                I_ang = I_prior_ang + diff_theta*self.delay
+                D_ang = (diff_theta-diff_theta_prior)/self.delay
+
+                self.cmd_vel.angular.z = (self.P_angular*diff_theta/self.delay\
+                + (self.I_angular*I_ang) + (self.D_angular*D_ang))*(abs(diff_theta) > self.diff_theta)
+
+                if self.cmd_vel.angular.z > self.theta_limit:
+                    self.cmd_vel.angular.z -= (self.cmd_vel.angular.z-self.theta_limit) 
+                if self.cmd_vel.angular.z < -self.theta_limit:
+                    self.cmd_vel.angular.z -= (self.cmd_vel.angular.z+self.theta_limit)
+
+                self.cmd_vel.angular.z*=scale
+
+                self.vel_publisher.publish(self.cmd_vel)
+                time.sleep(self.delay)
+
+                diff_theta = setpoint_theta - self.pose_theta
+
+            # Use minimum error for angle to account for discontinuities at 180
+            if diff_theta > math.pi:
+                diff_theta -= 2*math.pi 
+            if diff_theta < -math.pi:
+                diff_theta += 2*math.pi
+
+            # Set current values to prior values of next loop in PID
+            I_prior_ang = I_ang
+            diff_theta_prior = diff_theta
+
+            if (self.get_clock().now() - self.timer) > Duration(seconds=0.2):
+                self.get_logger().info(
+                    f'Current pose: {self.pose_x:.3f}, {self.pose_y:.3f}, {self.pose_theta*180.0/math.pi:.3f}\n'
+                    f'Theta offset: {diff_theta*180.0/math.pi:.5f}\n'
+                    f'Current control velocities: x = {self.cmd_vel.linear.x:.5f}, w = {self.cmd_vel.angular.z:.5f}')
+                self.timer = self.get_clock().now()
+
+            with self.thread_lock:
+                self.cmd_vel.angular.z = 0.0
+                self.vel_publisher.publish(self.cmd_vel)
+            
+            with open(self.csv_file_path, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([time.time(), setpoint_theta*180.0/math.pi, self.pose_theta*180.0/math.pi])
+            
+        #Stop robot when finished
+        self.cmd_vel.linear.x = 0.0
+        self.cmd_vel.angular.z = 0.0
+        self.vel_publisher.publish(self.cmd_vel)
+        self.get_logger().info('PID straight line control finished.')
+        # with self.thread_lock:
+        #     self.count += 1
         return
 
     '''

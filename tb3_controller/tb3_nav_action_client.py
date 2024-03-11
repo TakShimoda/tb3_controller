@@ -175,7 +175,7 @@ class NavClientNode(Node):
                 theta += dist_theta
                 theta -= (2*math.pi*(theta>math.pi))
                 #Turn
-                waypoints = self.create_waypoints('angular', 0.0, math.pi/2, num_waypoints, x, y, theta)
+                waypoints = self.create_waypoints('angular', 0.0, math.pi/2, 1, x, y, theta)
                 goals_queue.append(waypoints)
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
                 theta += math.pi/(2*num_waypoints)
@@ -216,7 +216,7 @@ class NavClientNode(Node):
         current_goal = 0
         #current_goal = self.send_all_nav_goals('angular', current_goal)
         #Then send the specified motion
-        current_goal = self.send_all_nav_goals(self.type, current_goal)
+        current_goal = self.send_all_nav_goals(self.type, current_goal, 2)
        # self.get_logger().info(f'Completed all motion. {self.name} finished.')
 
     '''
@@ -226,8 +226,11 @@ class NavClientNode(Node):
             - current_goal: the current goal ID in order to stack goal ID of different motions
         Outputs: None
     '''
-    def send_all_nav_goals(self, type_, current_goal):
+    def send_all_nav_goals(self, type_, current_goal, repeat=1):
         goals_queue = self.create_all_goals(type_)
+        #repeat n times
+        goals_queue = goals_queue*repeat
+        self.get_logger().info(f'Repeating trajectory {repeat} times.')
         for goal_id, goals in enumerate(goals_queue):
             for wp_id, waypoints in enumerate(goals):
                 self.send_nav_goal(waypoints, goal_id+current_goal, wp_id)
