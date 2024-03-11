@@ -13,7 +13,7 @@ basic:
 
 time:
   initial_delay: 2.0
-  cmd_delay: 0.1
+  cmd_delay: 0.05
 
 limits:
   x: 0.18

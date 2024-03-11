@@ -236,16 +236,6 @@ class TB3Node(Node):
         self.get_logger().info(f'{self.name} has reached its goal.')
 
 
-# class NavClient(Node):
-#     def __init__(self, name, motion):
-#         super().__init__(name + 'node')
-#         #Movement parameters
-#         self.motion_config = motion      #Configuration of motion
-#         self.start = False                      #True/False whether to start moving the robot yet
-#         self.cmd_vel = Twist()                  #cmd_vel commands to send to the robot
-
-
-
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", help="robot name", required=False, default="B04")
