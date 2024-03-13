@@ -6,14 +6,15 @@ from rclpy.clock import ROSClock, ClockType
 from rclpy.time  import Time
 from rclpy.node import Node
 from rclpy.duration import Duration
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import TransformStamped
 from builtin_interfaces.msg import Time as TimeStamp
 from tb3_interfaces.action import ContactComputer, NavGoal
 from tb3_interfaces.msg import RobotStatus
 from tb3_interfaces.srv import ReturnPose
+import tf_transformations
 
 #Non-ROS imports
-import argparse, math, time, yaml
+import argparse, math, threading, time, yaml
 import numpy as np
 
 
@@ -49,6 +50,13 @@ class NavClientNode(Node):
         self.name = name
         self.client_config = client_config
         self.type = self.client_config['type']                                  #circular or square
+        self.pose_x = 0.0
+        self.pose_y = 0.0
+        self.pose_theta = 0.0
+
+        #Misc parameters
+        self.thread_lock = threading.Lock()
+        self.time = self.get_clock().now()
 
         #Service client for getting one-time pose from server
         self.pose_client = self.create_client(ReturnPose, name+'_pose')
@@ -63,6 +71,12 @@ class NavClientNode(Node):
             RobotStatus,
             'group_trigger_success',
             self.num_robots_callback,
+            10)
+        #Vicon subscriber
+        self.vicon_sub = self.create_subscription(
+            TransformStamped,
+            f'vicon/{name}/{name}',
+            self.vicon_pose_callback,
             10)
         
 ########################################################################################################################
@@ -147,7 +161,7 @@ class NavClientNode(Node):
     def set_timer(self, time_stamp):
         self.get_logger().info('Starting timer... ')
         last_time = Time(seconds=time_stamp.sec, nanoseconds=time_stamp.nanosec, clock_type=ClockType.ROS_TIME)
-        start_time = last_time + Duration(seconds=2)
+        start_time = last_time + Duration(seconds=3)
         delay = start_time - self.get_clock().now()
         
         self.timer = self.create_timer(delay.nanoseconds/1e9, self.motion_planner)
@@ -260,12 +274,19 @@ class NavClientNode(Node):
         self.get_logger().info(f'There are {num_goals} goals and {num_waypoints} waypoints for each.')
         self.get_logger().info("Waiting to get current pose to start planning waypoints ...")
         self.total_waypoints_goal = num_goals*num_waypoints
-        current_pose = self.get_pose()
 
-        #We get poses in vicon coordinates. Convert to Cartesian coordinates (theta remains the same)
-        x = -current_pose.y
-        y = current_pose.x
-        theta = current_pose.theta
+        # current_pose = self.get_pose()
+ 
+        # #We get poses in vicon coordinates. Convert to Cartesian coordinates (theta remains the same)
+        # x = -current_pose.y
+        # y = current_pose.x
+        # theta = current_pose.theta
+
+        #New method for pose: use vicon subscriber on client side to get pose
+        with self.thread_lock:
+            x = -self.pose_y
+            y = self.pose_x
+            theta = self.pose_theta
 
         #Iterate over all subgoals to create all goals
         goals_queue = []
@@ -308,21 +329,9 @@ class NavClientNode(Node):
 
         #Spin until we get the pose
         future = self.pose_client.call_async(request)
-        #future.add_done_callback(self.pose_callback)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
 
-    '''
-    Pose callback: callback for non-blocking spin for the get_pose() function. Probably don't need it
-        Inputs: future
-        Outputs: None
-    '''
-    def pose_callback(self, future):
-        try:
-            response = future.result()
-            self.get_logger().info('Received response')
-        except Exception as e:
-            self.get_logger().error("Service call failed %r" %(e,))
 
     '''
     Motion planner: plans all motion, including initial spinning, from beginning to end of program
@@ -429,3 +438,25 @@ class NavClientNode(Node):
         goal_id = result.goal_id
         wp_id = result.wp_id
         self.get_logger().info(f'{self.name} Goal number {goal_id}. WP number {wp_id} has reached its goal.')
+
+    '''
+    Vicon Pose Callback: Get the vicon pose (copied from server)
+        Inputs: pose(TransformStamped) - in vicon coordinates (x-forward, y-left)
+        Outputs: None
+    ''' 
+    def vicon_pose_callback(self, pose):
+
+        trans = pose.transform.translation
+        quat = pose.transform.rotation
+        r, p, y = tf_transformations.euler_from_quaternion([quat.x, quat.y, quat.z, quat.w])
+
+        with self.thread_lock:
+            self.pose_x = trans.x
+            self.pose_y = trans.y
+            self.pose_theta = y
+        
+        if (self.get_clock().now() - self.time) > Duration(seconds=1.0):
+            with self.thread_lock:
+                # self.get_logger().info(
+                #     f'Received vicon pose: ({trans.x:.3f}, {trans.y:.3f}, {y*180/math.pi:.3f})')
+                self.time = self.get_clock().now()
