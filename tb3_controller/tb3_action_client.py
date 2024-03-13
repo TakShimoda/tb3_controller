@@ -106,8 +106,12 @@ class TB3Node(Node):
     '''
     def num_robots_callback(self, robot_status):
         final_msg = f'All {robot_status.num_robots} robots have been received by computer. Latest time is {robot_status.timestamp.sec}'
+        # If total number of robots reached
         if robot_status.total_reached == True:
-            #if last robot
+            # If last robot: this callback is triggered BEFORE the get_result_callback
+            # Note this callback is received by every robot after every new robot reaches server
+            # So if this is last robot, self.msg_logged isn't set yet (in the get_result_callback), 
+            # and this will trigger the set_timer in the get_result_callback vy setting self.log_msg
             if not self.msg_logged:
                 self.log_msg = final_msg
                 self.last_time = robot_status.timestamp

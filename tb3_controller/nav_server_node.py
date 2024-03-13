@@ -71,7 +71,7 @@ class NavServerNode(Node):
 
         #Communication objects
         self.nav_action_server = ActionServer(
-            self, NavGoal, 'nav_action',
+            self, NavGoal, name+'_nav_action',
             execute_callback=self.nav_execute_callback,
             goal_callback=self.nav_goal_callback,
             cancel_callback=self.nav_cancel_callback,
@@ -91,6 +91,11 @@ class NavServerNode(Node):
             self.name + "/cmd_vel",
             10)
 
+    '''
+    Send Pose: Send pose back to the client
+        Inputs: request, response (ReturnPose srv)
+        Outputs: response (ReturnPose srv)
+    ''' 
     def send_pose(self, request, response):
         response.x = self.pose_x
         response.y = self.pose_y

@@ -3,10 +3,8 @@ import rclpy
 from rclpy.action import ActionServer
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup
-from tb3_interfaces.action import ContactComputer, NavGoal
+from tb3_interfaces.action import ContactComputer
 from tb3_interfaces.msg import RobotStatus
-#from tb3_nav_action_server import NavNode
 
 #Non-ROS imports
 import argparse
@@ -15,18 +13,13 @@ class ComputerNode(Node):
 
     def __init__(self, num_robots):
         super().__init__('computer_node')
+        
         self.action_server = ActionServer(
             self,
             ContactComputer,
             'group_trigger',
             self.execute_callback)
         
-        # self.nav_action_server = ActionServer(
-        #     self,
-        #     NavGoal,
-        #     'nav_action',
-        #     self.nav_execute_callback)
-
         #Robot group parameters
         self.robot_ids = set()                  #Unique set of all robots that contact
         self.num_robots = int(num_robots)       #Number of expected robots
