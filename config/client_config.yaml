@@ -9,8 +9,8 @@ square:
 circ:
   rad: 2.0
   angle: 90 #angle increments of entire circle in degrees
-  num_points: 10
+  num_points: 1
 
 turn:
-  angle: 90 #angle increments of entire turn in degrees
-  num_points: 10
+  angle: 360 #angle increments of entire turn in degrees
+  num_points: 1

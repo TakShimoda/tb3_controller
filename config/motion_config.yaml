@@ -25,7 +25,7 @@ limits:
   # PD: P = 0.8Ku = 0.56, D = 0.1*Ku*Tu = 0.084
   # No overshoot: P = 0.2Ku = 0.14, I = 0.4Ku/Tu = 0.2333, D = 2KuTu/3 = 0.56
 PID_linear:
-  P: 0.315 
+  P: 0.270 
   I: 0.315
   D: 0.00
 
@@ -35,7 +35,7 @@ PID_linear:
   # PID: P = 0.6Ku = 0.402, I = 1.2Ku/Tu = 0.730909091, D = 0.075KuTu = 0.055275
   # No overshoot: P = 0.2Ku = 0.134, I = 0.4Ku/Tu = 0.2436, D = 2KuTu/3 = 0.4913
 PID_angular:
-  P: 0.3015
+  P: 0.280
   I: 0.3289
   D: 0.00
 

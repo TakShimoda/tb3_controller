@@ -161,7 +161,7 @@ class NavClientNode(Node):
     def set_timer(self, time_stamp):
         self.get_logger().info('Starting timer... ')
         last_time = Time(seconds=time_stamp.sec, nanoseconds=time_stamp.nanosec, clock_type=ClockType.ROS_TIME)
-        start_time = last_time + Duration(seconds=3)
+        start_time = last_time + Duration(seconds=2)
         delay = start_time - self.get_clock().now()
         
         self.timer = self.create_timer(delay.nanoseconds/1e9, self.motion_planner)

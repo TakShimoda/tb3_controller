@@ -174,7 +174,10 @@ class NavServerNode(Node):
 
             #add a little bit more to delay for rotation
             if abs(self.cmd_vel.linear.x) <= 0.01:
-                delay+=delay/10
+                delay+=delay/20
+            #else, if straight, lessen the delay; this is so there's more space for PID correction (less likely y error)
+            else:
+                delay-=delay/10
             time.sleep(delay)
 
         #Reset to zero
