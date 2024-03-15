@@ -163,6 +163,10 @@ class NavClientNode(Node):
         last_time = Time(seconds=time_stamp.sec, nanoseconds=time_stamp.nanosec, clock_type=ClockType.ROS_TIME)
         start_time = last_time + Duration(seconds=2)
         delay = start_time - self.get_clock().now()
+
+        if delay < Duration(seconds=0):
+            self.get_logger().warn('Timer is negative. Resetting it to be positive')
+            delay = Duration(seconds=2)
         
         self.timer = self.create_timer(delay.nanoseconds/1e9, self.motion_planner)
         self.get_logger().info(f'Timer started. Starting in {delay.nanoseconds/1e9} seconds.')
