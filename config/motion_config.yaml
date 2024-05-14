@@ -15,17 +15,21 @@ time:
   initial_delay: 2.0
   cmd_delay: 0.05
 
+#for most
 limits:
   x: 0.18
   theta: 0.18
   theta_turn: 2.2
 
-#Current tuning scheme: Ku = 0.7, Tu = 1.2
+W01_limits:
+  theta_turn: 1.82
+
+#Current tuning scheme (burger): Ku = 0.7, Tu = 1.2
   # PI: P = 0.45Ku = 0.315, I = 0.54Ku/Tu = 0.315
   # PD: P = 0.8Ku = 0.56, D = 0.1*Ku*Tu = 0.084
   # No overshoot: P = 0.2Ku = 0.14, I = 0.4Ku/Tu = 0.2333, D = 2KuTu/3 = 0.56
 PID_linear:
-  P: 0.270 
+  P: 0.250 
   I: 0.315
   D: 0.00
 
@@ -59,6 +63,20 @@ circle:
   delay: 0.5
   radius: 2.0
   linear_x: 0.18
+
+#Waffle has slower angular velocity than what's specified, so two changes must be made:
+  #1) Speeds must be increased to account for it
+  #2) If speeds are already at limit, delays must be increased instead
+  #Note: speeds are different depending on the robot
+
+  #W01: 1.82rad/s(limit) * 3.45 = 315 (should be 360)
+    #Factor of ~1.14 should be taken into account
+  #W09: 2.2rad/s * 2.856sec = 193 degrees (should be 360)
+    #Factor of ~1.85 should be taken into account
+  
+waffle:
+  W01_scale_factor: 1.14
+  W09_scale_factor: 1.85
 
 
 

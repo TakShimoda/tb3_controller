@@ -26,7 +26,8 @@ setup(
             "tb3_action_server = tb3_controller.tb3_action_server:main",
             "tb3_nav_action_server = tb3_controller.tb3_nav_action_server:main",
             "tb3_nav_action_client = tb3_controller.tb3_nav_action_client:main",
-            "tb3_PID = tb3_controller.PID_tuning:main"
+            "tb3_PID = tb3_controller.PID_tuning:main",
+            "tb3_test = tb3_controller.tb3_velocity_test:main"
         ],
     },
 )

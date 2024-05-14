@@ -46,6 +46,9 @@ class NavServerNode(Node):
         self.goal_queue = []                        #Queue of goals
         self.queue_goal = True                      #Queue goal? T/F
         self.goal_handle: ServerGoalHandle = None   #Current goal handle
+        self.velocity_sign = 1.0                    #W09 has reversed polarity
+        if self.name == 'W09':
+            self.velocity_sign = -1.0
 
         #Initial pose (vicon coordinates)
         self.pose_x = 0.0
@@ -68,6 +71,17 @@ class NavServerNode(Node):
         self.theta_limit = config['limits']['theta']
         self.theta_limit_turn = config['limits']['theta_turn']
         self.num_points = config['line']['num_points']
+        # Increase omega if waffle
+        if self.name[0] == 'W':
+            self.omega_scale = config['waffle'][name+'_scale_factor']
+            self.get_logger().info(f'Using {name}. Adjusting omega velocities by {self.omega_scale}')
+        else:
+            self.omega_scale = 1.0
+
+        # Specific cases for certain robots
+        # For W01, angular speed limit is 1.82
+        if self.name == 'W01':
+            self.theta_limit_turn = config['W01_limits']['theta_turn'] 
 
         #Communication objects
         self.nav_action_server = ActionServer(
@@ -149,12 +163,12 @@ class NavServerNode(Node):
         if abs(self.cmd_vel.linear.x) >= 0.02: #if circular
             self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
 
-        # If straight line
+        # If straight line, do the straight line motion with PID correction for angles
         if (abs(self.cmd_vel.angular.z) <= 0.001 and abs(self.cmd_vel.linear.x) >= 0.02):
             with self.thread_lock:
                 diff_theta = goal_theta_global - self.pose_theta 
             self.PID_straight(goal_x, diff_theta, goal_theta_global)
-
+        # If turning/circular motion
         else:
             # If delay isn't long enough given the velocity, extend it
             if abs(self.cmd_vel.linear.x) >= 0.02: #if straight line/circle
@@ -170,14 +184,12 @@ class NavServerNode(Node):
             
             self.get_logger().info(
                 f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, w = {self.cmd_vel.angular.z:.3f} for {delay:.3f} seconds')
+            
+            if self.name[0] == 'W':
+                with self.thread_lock:
+                    delay = self.scale_omega(delay)
             self.vel_publisher.publish(self.cmd_vel)
 
-            #add a little bit more to delay for rotation
-            if abs(self.cmd_vel.linear.x) <= 0.01:
-                delay+=delay/20
-            #else, if straight, lessen the delay; this is so there's more space for PID correction (less likely y error)
-            else:
-                delay-=delay/10
             time.sleep(delay)
 
         #Reset to zero
@@ -198,16 +210,17 @@ class NavServerNode(Node):
         #convert goals to local coordinates
         diff_local = self.transform_vicon_to_robot(diff_x, diff_y, diff_theta)
         diff_x_local, diff_y_local = diff_local[0, 2], diff_local[1, 2]
-        self.PID(feedback, diff_x_local, diff_y_local, diff_theta, x, y, goal_theta_global, goal_handle)
+        result.x_final, result.y_final, result.theta_final = \
+            self.PID(feedback, diff_x_local, diff_y_local, diff_theta, x, y, goal_theta_global, goal_handle)
 
         #Set final goal state
         goal_handle.succeed()
 
         #Set and return the result
-        with self.thread_lock:
-            result.x_final = self.pose_x
-            result.y_final = self.pose_y
-            result.theta_final = self.pose_theta
+        # with self.thread_lock:
+        #     result.x_final = self.pose_x
+        #     result.y_final = self.pose_y
+        #     result.theta_final = self.pose_theta
         result.goal_id = goal_id
         result.wp_id = wp_id
 
@@ -271,9 +284,19 @@ class NavServerNode(Node):
                 if abs(self.cmd_vel.linear.x) >= 0.02:
                     self.cmd_vel.angular.z -= \
                         (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
-                    
-                #If below minimum, change velocities so they are at the minimum
 
+                #If 1) rotating, 2) diff_theta < 3 degrees, 3) omega < 0.01, increase omega
+                if abs(self.cmd_vel.linear.x) < 0.005 and abs(self.cmd_vel.angular.z) < 0.01\
+                      and abs(diff_theta*180.0/math.pi) < 5.0:
+                    self.cmd_vel.angular.z = self.cmd_vel.angular.z*abs(diff_theta*180.0/math.pi)*20.0
+                    if (self.get_clock().now() - self.timer) > Duration(seconds=0.2): 
+                        self.get_logger().info(f'=====ALMOST COMPLETE: diff_theta={diff_theta:.3f}, speed={self.cmd_vel.angular.z}=====')
+                
+                #Scale omega once more; most it can be is 1.11 rad/s, so it won't go over limit
+                self.cmd_vel.angular.z = self.cmd_vel.angular.z*self.omega_scale
+                #Correct sign for W09
+                self.cmd_vel.linear.x = self.cmd_vel.linear.x * self.velocity_sign
+                self.cmd_vel.angular.z = self.cmd_vel.angular.z * self.velocity_sign
                 self.vel_publisher.publish(self.cmd_vel)
                 time.sleep(self.delay)
 
@@ -320,9 +343,11 @@ class NavServerNode(Node):
                 writer = csv.writer(file)
                 writer.writerow([time.time(), 0, diff_theta])
         
-            #Reset
-            # self.cmd_vel.linear.x = 0.0
-            # self.cmd_vel.angular.z = 0.0
+        #Set the final poses upon stopping PID
+        with self.thread_lock:
+            x_final = self.pose_x
+            y_final = self.pose_y
+            theta_final = self.pose_theta
 
         #Stop robot when finished
         self.cmd_vel.linear.x = 0.0
@@ -330,7 +355,7 @@ class NavServerNode(Node):
         self.vel_publisher.publish(self.cmd_vel)
         self.get_logger().info('PID control finished.')
         #self.count += 1
-        return
+        return x_final, y_final, theta_final
 
     '''
     PID Straight: PID for correcting angles for straight line motion
@@ -342,6 +367,9 @@ class NavServerNode(Node):
         # Scaling factor, as movement shouldn't diverge from being straight
         scale=0.5
 
+        #Lower delay to not overshoot the goal
+        delay = self.delay*0.8
+
         # Initialize prior values in PID control
         I_prior_ang = 0.0
         diff_theta_prior = 0.0
@@ -349,6 +377,7 @@ class NavServerNode(Node):
         # Calculate number of points given the goal distance, velocity, and delay
         num_points = int(goal_x//(self.cmd_vel.linear.x*self.delay))
         remainder = goal_x/(self.cmd_vel.linear.x*self.delay) - num_points
+
 
         for _ in range(num_points):
             with self.thread_lock:
@@ -364,10 +393,14 @@ class NavServerNode(Node):
                 if self.cmd_vel.angular.z < -self.theta_limit:
                     self.cmd_vel.angular.z -= (self.cmd_vel.angular.z+self.theta_limit)
 
+                #First scale down omega, then, scale it back up if it's a waffle. Don't change delay here as it's not needed
                 self.cmd_vel.angular.z*=scale
-
+                self.cmd_vel.angular.z = self.cmd_vel.angular.z*self.omega_scale
+                #Correct sign for W09
+                self.cmd_vel.linear.x = self.cmd_vel.linear.x * self.velocity_sign
+                self.cmd_vel.angular.z = self.cmd_vel.angular.z * self.velocity_sign
                 self.vel_publisher.publish(self.cmd_vel)
-                time.sleep(self.delay)
+                time.sleep(delay)
 
                 diff_theta = setpoint_theta - self.pose_theta
 
@@ -480,9 +513,10 @@ class NavServerNode(Node):
             self.pose_theta = y
         
         if (self.get_clock().now() - self.timer) > Duration(seconds=1.0):
-            with self.thread_lock:
-                # self.get_logger().info(
-                #     f'Received vicon pose: ({trans.x:.3f}, {trans.y:.3f}, {y*180/math.pi:.3f})')
+            # with self.thread_lock:
+            #     self.get_logger().info(
+            #         f'Received vicon pose: (x: {trans.x:.3f}, y: {trans.y:.3f}, z:{trans.z:.3f}\n'
+            #         f'r: {r*180/math.pi:.3f}, p: {p*180/math.pi:.3f}, y: {y*180/math.pi:.3f})')
                 self.timer = self.get_clock().now()
 
     '''
@@ -502,6 +536,37 @@ class NavServerNode(Node):
         
         return pose_goal_local
 
+    '''
+    Scale omega. For the purposes of waffle bots to increase their angular velocity
+        Input: delay
+        Output: delay
+    '''    
+    def scale_omega(self, delay):
+        if abs(self.cmd_vel.linear.x) > 0.02: #if straight/circle
+            if self.cmd_vel.angular.z*self.omega_scale >= self.theta_limit:
+                self.get_logger().info(f'Increasing delay for linear/circular motion from'
+                                        f'{delay:.3f} to {delay*self.omega_scale:.3f}')
+                delay = delay*self.omega_scale
+            else:
+                self.get_logger().info(f'Increasing speed for linear/circular motion from'
+                    f'{self.cmd_vel.angular.z:.3f} to {self.cmd_vel.angular.z*self.omega_scale}')
+                self.cmd_vel.angular.z = self.cmd_vel.angular.z*self.omega_scale
+                
+        else: # if turning
+            if self.cmd_vel.angular.z*self.omega_scale >= self.theta_limit_turn:
+                delay = delay*self.omega_scale 
+                self.get_logger().info(f'Increasing delay for turning motion from'
+                                        f'{delay:.3f} to {delay*self.omega_scale:.3f}')
+            else:
+                self.cmd_vel.angular.z = self.cmd_vel.angular.z*self.omega_scale
+                self.get_logger().info(f'Increasing speed for turning motion from'
+                    f'{self.cmd_vel.angular.z:.3f} to {self.cmd_vel.angular.z*self.omega_scale}')
+                
+        #Correct sign for W09
+        self.cmd_vel.linear.x = self.cmd_vel.linear.x * self.velocity_sign
+        self.cmd_vel.angular.z = self.cmd_vel.angular.z * self.velocity_sign
+
+        return delay 
 #############################################
 #========EMPTY FUNCTIONS FOR NOW============#
 #############################################
