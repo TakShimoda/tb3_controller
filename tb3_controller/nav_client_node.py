@@ -347,7 +347,7 @@ class NavClientNode(Node):
         current_goal = 0
         #current_goal = self.send_all_nav_goals('angular', current_goal)
         #Then send the specified motion
-        current_goal = self.send_all_nav_goals(self.type, current_goal, 2)
+        current_goal = self.send_all_nav_goals(self.type, current_goal, 1)
         self.timer.cancel()
        # self.get_logger().info(f'Completed all motion. {self.name} finished.')
 
@@ -356,6 +356,7 @@ class NavClientNode(Node):
         Inputs: 
             - type: circular, linear, or angular 
             - current_goal: the current goal ID in order to stack goal ID of different motions
+            - repeat: how many times to perform the motion (1 for no repeat, 2 for doing it twice, etc...)
         Outputs: None
     '''
     def send_all_nav_goals(self, type_, current_goal, repeat=1):

@@ -19,7 +19,7 @@ time:
 limits:
   x: 0.18
   theta: 0.18
-  theta_turn: 2.2
+  theta_turn: 0.2 #2.2
 
 W01_limits:
   theta_turn: 1.82
