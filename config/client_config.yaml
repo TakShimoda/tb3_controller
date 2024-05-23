@@ -1,11 +1,17 @@
 #config for the action client(goal)
 
-#0: square (sharp turns), 
-#1: square (smooth turns)
-#2: circle
-#3: angular
+#1: circle
+#2: square (sharp turns), 
+#3: square (smooth turns)
+#4: angular
   #Note: circle and angular also define two of the three primitive motions (along with linear)
-type: 'square'
+type: 0
+
+type_dict: 
+  0: 'circle'
+  1: 'square'
+  2: 'square (smooth turns)'
+  3: 'angular'
 
 square:
   dist: 1.0 #in m

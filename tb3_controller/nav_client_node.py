@@ -50,6 +50,7 @@ class NavClientNode(Node):
         self.name = name
         self.client_config = client_config
         self.type = self.client_config['type']                                  #circular or square
+        self.type_name = self.client_config['type_dict'][self.client_config]    #motion in string terms
         self.pose_x = 0.0
         self.pose_y = 0.0
         self.pose_theta = 0.0
@@ -256,15 +257,14 @@ class NavClientNode(Node):
         Inputs: None 
         Outputs: goals queue: [waypoints]
     '''
-    # def create_all_goals(self, type_):
     def create_all_goals(self):
         #Initialize parameters
-        if self.type == 'circular':
+        if self.type == 0: #'circular'
             dist_lin =  self.client_config['circ']['rad']*self.client_config['circ']['angle']*math.pi/180.0
             dist_theta = self.client_config['circ']['angle']*math.pi/180.0
             num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
             num_waypoints = self.client_config['circ']['num_points']
-        elif self.type == 'square':
+        elif self.type == 2: #'square'
             dist_lin = self.client_config['square']['dist']
             dist_theta = 0.0
             num_goals = 4
@@ -299,7 +299,7 @@ class NavClientNode(Node):
             self.get_logger().info(f'=====Making goal number {i}.' 
                     f' Current robot pose (Cartesian): x= {x:.3f}, y={y:.3f}, theta={theta*180.0/math.pi:.3f}.=====')
 
-            if self.type == 'square':
+            if self.type in (2, 3): #== 2, 3: #'square'
             #Straight motion
                 waypoints = self.create_waypoints('linear', dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
@@ -351,7 +351,6 @@ class NavClientNode(Node):
         current_goal = 0
         #current_goal = self.send_all_nav_goals('angular', current_goal)
         #Then send the specified motion
-        # current_goal = self.send_all_nav_goals(self.type, current_goal, 1)
         current_goal = self.send_all_nav_goals(current_goal, 1)
         self.timer.cancel()
        # self.get_logger().info(f'Completed all motion. {self.name} finished.')
@@ -364,7 +363,6 @@ class NavClientNode(Node):
             - repeat: how many times to perform the motion (1 for no repeat, 2 for doing it twice, etc...)
         Outputs: None
     '''
-    # def send_all_nav_goals(self, type_, current_goal, repeat=1):
     def send_all_nav_goals(self, current_goal, repeat=1):
         # goals_queue = self.create_all_goals(type_)
         goals_queue = self.create_all_goals()
@@ -377,7 +375,7 @@ class NavClientNode(Node):
                 #sleep to prevent first two goals executing at once
                 time.sleep(0.05)
             self.get_logger().info(f'Finished sending goal {goal_id}')
-        self.get_logger().info(f'Finished sending all goals for {self.type} motion.')
+        self.get_logger().info(f'Finished sending all goals for {self.type_name} motion.')
         return len(goals_queue)
         
     '''
