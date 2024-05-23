@@ -1,9 +1,9 @@
 #config for the action client(goal)
 
-#1: circle
-#2: square (sharp turns), 
-#3: square (smooth turns)
-#4: angular
+#0: circle
+#1: square (sharp turns), 
+#2: square (smooth turns)
+#3: angular
   #Note: circle and angular also define two of the three primitive motions (along with linear)
 type: 0
 

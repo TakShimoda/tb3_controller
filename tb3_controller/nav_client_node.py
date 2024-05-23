@@ -50,7 +50,8 @@ class NavClientNode(Node):
         self.name = name
         self.client_config = client_config
         self.type = self.client_config['type']                                  #circular or square
-        self.type_name = self.client_config['type_dict'][self.client_config]    #motion in string terms
+        self.type_name = {0: 'circle', 1: 'square', 
+                          2: 'square (smooth turns)', 3: 'angular'}[self.type]    
         self.pose_x = 0.0
         self.pose_y = 0.0
         self.pose_theta = 0.0
@@ -264,7 +265,7 @@ class NavClientNode(Node):
             dist_theta = self.client_config['circ']['angle']*math.pi/180.0
             num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
             num_waypoints = self.client_config['circ']['num_points']
-        elif self.type == 2: #'square'
+        elif self.type in (2, 3): #==2,3 'square'
             dist_lin = self.client_config['square']['dist']
             dist_theta = 0.0
             num_goals = 4
