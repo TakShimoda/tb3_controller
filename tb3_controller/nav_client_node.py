@@ -265,7 +265,7 @@ class NavClientNode(Node):
             dist_theta = self.client_config['circ']['angle']*math.pi/180.0
             num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
             num_waypoints = self.client_config['circ']['num_points']
-        elif self.type in (2, 3): #==2,3 'square'
+        elif self.type in (1, 2): #==2,3 'square'
             dist_lin = self.client_config['square']['dist']
             dist_theta = 0.0
             num_goals = 4
@@ -300,7 +300,7 @@ class NavClientNode(Node):
             self.get_logger().info(f'=====Making goal number {i}.' 
                     f' Current robot pose (Cartesian): x= {x:.3f}, y={y:.3f}, theta={theta*180.0/math.pi:.3f}.=====')
 
-            if self.type in (2, 3): #== 2, 3: #'square'
+            if self.type in (1, 2): #== 2, 3: #'square'
             #Straight motion
                 waypoints = self.create_waypoints('linear', dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
