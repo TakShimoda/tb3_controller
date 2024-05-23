@@ -1,5 +1,10 @@
 #config for the action client(goal)
 
+#0: square (sharp turns), 
+#1: square (smooth turns)
+#2: circle
+#3: angular
+  #Note: circle and angular also define two of the three primitive motions (along with linear)
 type: 'square'
 
 square:
@@ -7,9 +12,14 @@ square:
   num_points: 1
 
 circ:
+  #For normal circular motion
   rad: 2.0
   angle: 90 #angle increments of entire circle in degrees
   num_points: 1
+  #For quarter angle turns in smoothed square motion
+  # rad: 0.2
+  # angle: 90 #angle increments of entire circle in degrees
+  # num_points: 1
 
 turn:
   angle: 360 #angle increments of entire turn in degrees

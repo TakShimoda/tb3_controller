@@ -5,13 +5,14 @@ from rclpy.executors import SingleThreadedExecutor
 from tb3_controller.nav_client_node import NavClientNode
 
 #Non-ROS imports
-import argparse, yaml
+import argparse, yaml, pathlib
 
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", help="robot name", required=False, default="B04")
     parser.add_argument("--config", help="path to config file", required=False, 
-                        default="/home/glenn/ros2_ws/src/tb3_controller/config/client_config.yaml")
+                        default=str(pathlib.Path(__file__).parents[3].resolve())+
+                            "/src/tb3_controller/config/client_config.yaml")
     args = parser.parse_args()
 
     with open(args.config, 'r') as file:

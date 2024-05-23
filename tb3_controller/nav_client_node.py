@@ -256,14 +256,15 @@ class NavClientNode(Node):
         Inputs: None 
         Outputs: goals queue: [waypoints]
     '''
-    def create_all_goals(self, type_):
+    # def create_all_goals(self, type_):
+    def create_all_goals(self):
         #Initialize parameters
-        if type_ == 'circular':
+        if self.type == 'circular':
             dist_lin =  self.client_config['circ']['rad']*self.client_config['circ']['angle']*math.pi/180.0
             dist_theta = self.client_config['circ']['angle']*math.pi/180.0
             num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
             num_waypoints = self.client_config['circ']['num_points']
-        elif type_ == 'square':
+        elif self.type == 'square':
             dist_lin = self.client_config['square']['dist']
             dist_theta = 0.0
             num_goals = 4
@@ -298,21 +299,24 @@ class NavClientNode(Node):
             self.get_logger().info(f'=====Making goal number {i}.' 
                     f' Current robot pose (Cartesian): x= {x:.3f}, y={y:.3f}, theta={theta*180.0/math.pi:.3f}.=====')
 
-            if type_ == 'square':
-                #straight
+            if self.type == 'square':
+            #Straight motion
                 waypoints = self.create_waypoints('linear', dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
+                #Set x,y to the last waypoint (last waypoint entry(-1), SE(2) matrix [0], and then x, y [2] and [5])
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
+                #Update theta to what it would be at the end of the waypoints
                 theta += dist_theta
                 theta -= (2*math.pi*(theta>math.pi))
-                #Turn
+
+            #Turn motion
                 waypoints = self.create_waypoints('angular', 0.0, math.pi/2, 1, x, y, theta)
                 goals_queue.append(waypoints)
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
                 theta += math.pi/(2*num_waypoints)
                 theta -= (2*math.pi*(theta>math.pi))
             else:
-                waypoints = self.create_waypoints(type_, dist_lin, dist_theta, num_waypoints, x, y, theta)
+                waypoints = self.create_waypoints(self.type, dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
                 #Reset the pose to make it equal to the goal pose, to feed into next iteration
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
@@ -347,7 +351,8 @@ class NavClientNode(Node):
         current_goal = 0
         #current_goal = self.send_all_nav_goals('angular', current_goal)
         #Then send the specified motion
-        current_goal = self.send_all_nav_goals(self.type, current_goal, 1)
+        # current_goal = self.send_all_nav_goals(self.type, current_goal, 1)
+        current_goal = self.send_all_nav_goals(current_goal, 1)
         self.timer.cancel()
        # self.get_logger().info(f'Completed all motion. {self.name} finished.')
 
@@ -359,8 +364,10 @@ class NavClientNode(Node):
             - repeat: how many times to perform the motion (1 for no repeat, 2 for doing it twice, etc...)
         Outputs: None
     '''
-    def send_all_nav_goals(self, type_, current_goal, repeat=1):
-        goals_queue = self.create_all_goals(type_)
+    # def send_all_nav_goals(self, type_, current_goal, repeat=1):
+    def send_all_nav_goals(self, current_goal, repeat=1):
+        # goals_queue = self.create_all_goals(type_)
+        goals_queue = self.create_all_goals()
         #repeat n times
         goals_queue = goals_queue*repeat
         self.get_logger().info(f'Repeating trajectory {repeat} times.')
@@ -370,7 +377,7 @@ class NavClientNode(Node):
                 #sleep to prevent first two goals executing at once
                 time.sleep(0.05)
             self.get_logger().info(f'Finished sending goal {goal_id}')
-        self.get_logger().info(f'Finished sending all goals for {type_} motion.')
+        self.get_logger().info(f'Finished sending all goals for {self.type} motion.')
         return len(goals_queue)
         
     '''
