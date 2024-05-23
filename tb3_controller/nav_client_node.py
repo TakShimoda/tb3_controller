@@ -270,6 +270,8 @@ class NavClientNode(Node):
             dist_theta = 0.0
             num_goals = 4
             num_waypoints = self.client_config['square']['num_points']
+            if self.type == 2: #smooth motion
+                dist_circ_lin = self.client_config['circ_turn']['rad']*self.client_config['circ']['angle']*math.pi/180.0
         else: #angular
             #Turn parameters
             dist_lin = 0.0
@@ -311,11 +313,15 @@ class NavClientNode(Node):
                 theta -= (2*math.pi*(theta>math.pi))
 
             #Turn motion
-                waypoints = self.create_waypoints('angular', 0.0, math.pi/2, 1, x, y, theta)
-                goals_queue.append(waypoints)
-                x, y = waypoints[-1][0][2], waypoints[-1][0][5]
-                theta += math.pi/(2*num_waypoints)
-                theta -= (2*math.pi*(theta>math.pi))
+                if self.type == 1: #sharp turns
+                    waypoints = self.create_waypoints('angular', 0.0, math.pi/2, 1, x, y, theta)
+                    goals_queue.append(waypoints)
+                    x, y = waypoints[-1][0][2], waypoints[-1][0][5]
+                    theta += math.pi/(2*num_waypoints)
+                    theta -= (2*math.pi*(theta>math.pi))
+                else: #smooth turns
+                    waypoints = self.create_waypoints('circular', dist_circ_lin, math.pi/2, 1, x, y, theta)
+                    
             else:
                 waypoints = self.create_waypoints(self.type, dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
