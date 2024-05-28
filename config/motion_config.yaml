@@ -45,7 +45,7 @@ PID_angular:
 
 diff:
   x: 0.005    #0.005
-  y: 0.08     #0.06
+  y: 0.10     #0.06
   theta: 0.005 #~0.4 degrees  #0.009~0.5 degrees
 
 #Circle defined by radius R = V/W

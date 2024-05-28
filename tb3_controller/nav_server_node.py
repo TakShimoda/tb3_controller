@@ -329,6 +329,7 @@ class NavServerNode(Node):
             feedback.goal_id = goal_handle.request.goal_id
             feedback.wp_id = goal_handle.request.wp_id
             
+            #Log the current state every 0.2 seconds
             if (self.get_clock().now() - self.timer) > Duration(seconds=0.2):
                 goal_handle.publish_feedback(feedback)
                 self.get_logger().info(
@@ -339,9 +340,10 @@ class NavServerNode(Node):
                     f'Current control velocities: x = {self.cmd_vel.linear.x:.5f}, w = {self.cmd_vel.angular.z:.5f}')
                 self.timer = self.get_clock().now()
             
-            with open(self.csv_file_path, mode='a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([time.time(), 0, diff_theta])
+            #Write the differential to a csv, for PID tuning purposes
+            # with open(self.csv_file_path, mode='a', newline='') as file:
+            #     writer = csv.writer(file)
+            #     writer.writerow([time.time(), 0, diff_theta])
         
         #Set the final poses upon stopping PID
         with self.thread_lock:
@@ -426,9 +428,10 @@ class NavServerNode(Node):
                 self.cmd_vel.angular.z = 0.0
                 self.vel_publisher.publish(self.cmd_vel)
             
-            with open(self.csv_file_path, mode='a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([time.time(), setpoint_theta*180.0/math.pi, self.pose_theta*180.0/math.pi])
+            #Write the differential to a csv, for PID tuning purposes
+            # with open(self.csv_file_path, mode='a', newline='') as file:
+            #     writer = csv.writer(file)
+            #     writer.writerow([time.time(), setpoint_theta*180.0/math.pi, self.pose_theta*180.0/math.pi])
             
         #Stop robot when finished
         self.cmd_vel.linear.x = 0.0
