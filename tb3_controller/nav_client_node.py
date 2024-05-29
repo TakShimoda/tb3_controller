@@ -329,7 +329,7 @@ class NavClientNode(Node):
                     x, y = waypoints[-1][0][2], waypoints[-1][0][5]
                     theta += math.pi/(2*num_waypoints)
                     theta -= (2*math.pi*(theta>math.pi))
-                    
+            #circular/angular        
             else:
                 waypoints = self.create_waypoints(self.type, dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)

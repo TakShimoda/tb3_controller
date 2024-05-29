@@ -13,8 +13,8 @@ square:
 
 circ:
   #For normal circular motion
-  rad: 2.0
-  angle: 90 #angle increments of entire circle in degrees
+  rad: 0.5
+  angle: 360 #angle increments of entire circle in degrees
   num_points: 1
 
 circ_turn:
