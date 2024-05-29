@@ -263,7 +263,11 @@ class NavClientNode(Node):
         if self.type == 0: #'circular'
             dist_lin =  self.client_config['circ']['rad']*self.client_config['circ']['angle']*math.pi/180.0
             dist_theta = self.client_config['circ']['angle']*math.pi/180.0
-            num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
+            #If distance is less/equal to 360 degrees
+            if dist_theta <= math.pi:
+                num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
+            else:
+                num_goals = 1
             num_waypoints = self.client_config['circ']['num_points']
         elif self.type in (1, 2): #==2,3 'square'
             dist_lin = self.client_config['square']['dist']

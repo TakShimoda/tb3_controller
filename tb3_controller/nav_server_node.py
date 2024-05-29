@@ -56,7 +56,8 @@ class NavServerNode(Node):
         self.pose_theta = 0.0
 
         #Motion parameters
-        self.config = config                        
+        self.config = config
+        self.use_PID = self.config['use_PID']                        
         self.P_linear = self.config['PID_linear']['P']
         self.I_linear = self.config['PID_linear']['I']
         self.D_linear = self.config['PID_linear']['D']
@@ -82,6 +83,11 @@ class NavServerNode(Node):
         # For W01, angular speed limit is 1.82
         if self.name == 'W01':
             self.theta_limit_turn = config['W01_limits']['theta_turn'] 
+        
+        if self.use_PID:
+            self.get_logger().info('Using PID')
+        else:
+            self.get_logger().info('Not using PID')
 
         #Communication objects
         self.nav_action_server = ActionServer(
@@ -210,9 +216,16 @@ class NavServerNode(Node):
         #convert goals to local coordinates
         diff_local = self.transform_vicon_to_robot(diff_x, diff_y, diff_theta)
         diff_x_local, diff_y_local = diff_local[0, 2], diff_local[1, 2]
-        result.x_final, result.y_final, result.theta_final = \
-            self.PID(feedback, diff_x_local, diff_y_local, diff_theta, x, y, goal_theta_global, goal_handle)
-
+        if self.use_PID:
+            result.x_final, result.y_final, result.theta_final = \
+                self.PID(feedback, diff_x_local, diff_y_local, diff_theta, x, y, goal_theta_global, goal_handle)
+        else:
+            with self.thread_lock:
+                result.x_final = self.pose_x
+                result.y_final = self.pose_y
+                result.theta_final = self.pose_theta
+            self.get_logger().info(f'No PID')
+                
         #Set final goal state
         goal_handle.succeed()
 
@@ -243,7 +256,7 @@ class NavServerNode(Node):
     '''
     PID: PID example for linear motion
         Inputs: feedback, local x diff, local y diff, theta diff, goal_x, goal_y, goal_theta, goal_handle
-        Outputs: None
+        Outputs: x_final, y_final, theta_final
     ''' 
     def PID(self, feedback, diff_x_local, diff_y_local, diff_theta, goal_x, goal_y, goal_theta, goal_handle):
         
