@@ -47,7 +47,7 @@ class NavServerNode(Node):
         self.queue_goal = True                      #Queue goal? T/F
         self.goal_handle: ServerGoalHandle = None   #Current goal handle
         self.velocity_sign = 1.0                    #W09 has reversed polarity
-        self.is_circle = lambda x, w: (abs(w) >= 0.001 and abs(x) >= 0.02)  #check if motion is circular          
+        self.is_circle = lambda x, w: (abs(w) >= 0.05 and abs(x) >= 0.05)  #check if motion is circular          
         if self.name == 'W09':
             self.velocity_sign = -1.0
 
@@ -158,13 +158,17 @@ class NavServerNode(Node):
         self.get_logger().info('Initiating basic motion control...')
 
         self.cmd_vel.linear.x = goal_x/self.delay
+        self.cmd_vel.angular.z = goal_theta/self.delay
         
         #If circle, define angular velocity by w=v/r.
-        if self.is_circle:
+        
+        if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
             goal_radius = goal_x/goal_theta
             self.cmd_vel.angular.z = self.cmd_vel.linear.x/goal_radius
-        else:
-            self.cmd_vel.angular.z = goal_theta/self.delay
+            self.get_logger().info(f'Circular motion with radius {goal_radius},'
+                                    f'v: {self.cmd_vel.linear.x}, w: {self.cmd_vel.angular.z}')
+        # else:
+        #     self.cmd_vel.angular.z = goal_theta/self.delay
 
         # If velocities > limits, subtract to set it to the limits. 
             # For linear, it's 0.18. 
@@ -175,13 +179,16 @@ class NavServerNode(Node):
             (self.cmd_vel.angular.z>self.theta_limit_turn)*(self.cmd_vel.angular.z-self.theta_limit_turn)
         
         #if abs(self.cmd_vel.linear.x) >= 0.02: #if circular
-        if self.is_circle:
+        if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
             self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
             #correct for when v=w=0.18 (circ of radius 1), but we want smaller radius
             #make the linear velocity slower
             if goal_radius < (self.cmd_vel.linear.x/self.cmd_vel.angular.z):
                 self.cmd_vel.linear.x = self.cmd_vel.angular.z*goal_radius
                 self.get_logger().info(f'Correcting velocity to {self.cmd_vel.linear.x} for circular motion')
+
+        self.get_logger().info(f'After correction. v: {self.cmd_vel.linear.x}, w: {self.cmd_vel.angular.z}')
+
         # If straight line, do the straight line motion with PID correction for angles
         if (abs(self.cmd_vel.angular.z) <= 0.001 and abs(self.cmd_vel.linear.x) >= 0.02):
             with self.thread_lock:
@@ -396,7 +403,7 @@ class NavServerNode(Node):
         scale=0.5
 
         #Lower delay to not overshoot the goal
-        delay = self.delay*0.8
+        delay = self.delay*1.0
 
         # Initialize prior values in PID control
         I_prior_ang = 0.0
