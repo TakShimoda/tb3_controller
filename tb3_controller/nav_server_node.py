@@ -180,12 +180,19 @@ class NavServerNode(Node):
         
         #if abs(self.cmd_vel.linear.x) >= 0.02: #if circular
         if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
+            # First, limit angular velocity to the 0.18 limit
             self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
-            #correct for when v=w=0.18 (circ of radius 1), but we want smaller radius
-            #make the linear velocity slower
+            # Correct for when v=w=0.18 (circ of radius 1), but we want smaller radius
             if goal_radius < (self.cmd_vel.linear.x/self.cmd_vel.angular.z):
+                # Make the linear velocity slower
                 self.cmd_vel.linear.x = self.cmd_vel.angular.z*goal_radius
-                self.get_logger().info(f'Correcting velocity to {self.cmd_vel.linear.x} for circular motion')
+                self.get_logger().info(f'Increasing linear velocity to {self.cmd_vel.linear.x:.3f} for circular motion')
+            # Correct for when v=w=0.18 (circ of radius 1), but we want larger radius
+            elif goal_radius > (self.cmd_vel.linear.x/self.cmd_vel.angular.z):
+                # Make the angular velocity slower
+                #self.cmd_vel.linear.x = self.cmd_vel.angular.z*goal_radius
+                self.cmd_vel.angular.z = self.cmd_vel.linear.x/goal_radius
+                self.get_logger().info(f'Decreasing angular velocity to {self.cmd_vel.angular.z:.3f} for circular motion')
 
         self.get_logger().info(f'After correction. v: {self.cmd_vel.linear.x}, w: {self.cmd_vel.angular.z}')
 
