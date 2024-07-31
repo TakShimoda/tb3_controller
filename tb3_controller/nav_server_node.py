@@ -166,7 +166,7 @@ class NavServerNode(Node):
             goal_radius = goal_x/goal_theta
             self.cmd_vel.angular.z = self.cmd_vel.linear.x/goal_radius
             self.get_logger().info(f'Circular motion with radius {goal_radius},'
-                                    f'v: {self.cmd_vel.linear.x}, w: {self.cmd_vel.angular.z}')
+                                    f'v: {self.cmd_vel.linear.x:.3f}, w: {self.cmd_vel.angular.z:.3f}')
         # else:
         #     self.cmd_vel.angular.z = goal_theta/self.delay
 
@@ -180,13 +180,18 @@ class NavServerNode(Node):
         
         #if abs(self.cmd_vel.linear.x) >= 0.02: #if circular
         if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
+            
+            self.get_logger().info('Current linear and angular velocities are: '
+                                    f'{self.cmd_vel.linear.x:.3f}, {self.cmd_vel.angular.z:.3f} ' 
+                                    'for circular motion after limits have been applied')
+
             # First, limit angular velocity to the 0.18 limit
             self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
             # Correct for when v=w=0.18 (circ of radius 1), but we want smaller radius
             if goal_radius < (self.cmd_vel.linear.x/self.cmd_vel.angular.z):
                 # Make the linear velocity slower
                 self.cmd_vel.linear.x = self.cmd_vel.angular.z*goal_radius
-                self.get_logger().info(f'Increasing linear velocity to {self.cmd_vel.linear.x:.3f} for circular motion')
+                self.get_logger().info(f'Decreasing linear velocity to {self.cmd_vel.linear.x:.3f} for circular motion')
             # Correct for when v=w=0.18 (circ of radius 1), but we want larger radius
             elif goal_radius > (self.cmd_vel.linear.x/self.cmd_vel.angular.z):
                 # Make the angular velocity slower
@@ -194,7 +199,7 @@ class NavServerNode(Node):
                 self.cmd_vel.angular.z = self.cmd_vel.linear.x/goal_radius
                 self.get_logger().info(f'Decreasing angular velocity to {self.cmd_vel.angular.z:.3f} for circular motion')
 
-        self.get_logger().info(f'After correction. v: {self.cmd_vel.linear.x}, w: {self.cmd_vel.angular.z}')
+        self.get_logger().info(f'After correction. v: {self.cmd_vel.linear.x:.3f}, w: {self.cmd_vel.angular.z:.3f}')
 
         # If straight line, do the straight line motion with PID correction for angles
         if (abs(self.cmd_vel.angular.z) <= 0.001 and abs(self.cmd_vel.linear.x) >= 0.02):
@@ -264,15 +269,17 @@ class NavServerNode(Node):
         result.goal_id = goal_id
         result.wp_id = wp_id
 
-        #If we're queuing, execute the next goal inside the queue
-        if self.queue_goal: 
-            self.process_next_goal()
         self.get_logger().info(
             f'Reached final state for goal {goal_id} waypoint {wp_id}: ' 
             f'{result.x_final:.3f}, {result.y_final:.3f}, {result.theta_final*180.0/math.pi:.3f}')
         #set to zero
-        self.cmd_vel.linear.x = 0.0
-        self.cmd_vel.angular.z = 0.0
+        with self.thread_lock:
+            self.cmd_vel.linear.x = 0.0
+            self.cmd_vel.angular.z = 0.0
+
+        #If we're queuing, execute the next goal inside the queue. Do this after everything's been processed
+        if self.queue_goal: 
+            self.process_next_goal()
 
         if self.count == 1:
             self.get_logger().info('Destroying node...')

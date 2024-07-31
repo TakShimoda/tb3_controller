@@ -1,6 +1,6 @@
 #config for the action server(control)
 
-type: 'circular'  #circular/square
+type: 'square'  #circular/square
 
 use_PID: 0
 
