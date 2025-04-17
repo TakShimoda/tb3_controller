@@ -2,7 +2,7 @@
 
 type: 'square'  #circular/square
 
-use_PID: 0
+use_PID: 1
 
 line:
   num_points: 10
@@ -46,9 +46,9 @@ PID_angular:
   D: 0.00
 
 diff:
-  x: 0.005    #0.005
-  y: 0.10     #0.06
-  theta: 0.005 #~0.4 degrees  #0.009~0.5 degrees
+  x: 0.008    #0.005
+  y: 0.12     #0.06
+  theta: 0.005 #0.005~0.4 degrees  #0.009~0.5 degrees
 
 #Circle defined by radius R = V/W
 #Hard-coded values now; later should programatically calculate x/w values based on radius (arg)
@@ -78,7 +78,7 @@ circle:
   
 waffle:
   W01_scale_factor: 1.14
-  W09_scale_factor: 1.85
+  W09_scale_factor: 1.10 #1.85
 
 
 

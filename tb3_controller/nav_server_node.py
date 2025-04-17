@@ -49,7 +49,7 @@ class NavServerNode(Node):
         self.velocity_sign = 1.0                    #W09 has reversed polarity
         self.is_circle = lambda x, w: (abs(w) >= 0.05 and abs(x) >= 0.05)  #check if motion is circular          
         if self.name == 'W09':
-            self.velocity_sign = -1.0
+            self.velocity_sign = 1.0#-1.0
 
         #Initial pose (vicon coordinates)
         self.pose_x = 0.0
@@ -299,6 +299,7 @@ class NavServerNode(Node):
         diff_x_local_prior = 0.0
         I_prior_ang = 0.0
         diff_theta_prior = 0.0
+        self.time_ = self.get_clock().now()
 
         while not (abs(diff_x_local) < self.diff_x and abs(diff_y_local) < self.diff_y and abs(diff_theta) < self.diff_theta):
             #Update poses by adding P*difference, only if difference is still above threshold
@@ -387,6 +388,10 @@ class NavServerNode(Node):
                     f'Current control velocities: x = {self.cmd_vel.linear.x:.5f}, w = {self.cmd_vel.angular.z:.5f}')
                 self.timer = self.get_clock().now()
             
+            if self.get_clock().now() - self.time_ > Duration(seconds=1.2):
+                self.get_logger().error('===Time limit reached. Breaking out of PID.===')
+                break
+
             #Write the differential to a csv, for PID tuning purposes
             # with open(self.csv_file_path, mode='a', newline='') as file:
             #     writer = csv.writer(file)
