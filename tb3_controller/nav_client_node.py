@@ -13,6 +13,8 @@ from tb3_interfaces.msg import RobotStatus
 from tb3_interfaces.srv import ReturnPose
 import tf_transformations
 
+from tb3_controller.motion_func import create_waypoints
+
 #Non-ROS imports
 import argparse, math, threading, time, yaml
 import numpy as np
@@ -175,81 +177,7 @@ class NavClientNode(Node):
 
 ########################################################################################################################
 #################### MOTION FUNCTIONS ####################
-########################################################################################################################
-
-    '''
-    Create local goal: create local goal once, to repeatedly right-multiply into initial robot-pose
-        Inputs: 
-        - type: (circ/linear/angular)
-        - dist_lin: total linear distance (m)
-        - dist_theta: total angular distance (rad)
-        Outputs: goal in local coordinates coordinates
-    '''
-    def create_local_goal(self, type, dist_lin, dist_theta):
-        if type == 'circular':
-            #use polar coordinates
-            radius = dist_lin/dist_theta
-            theta_loc = dist_theta
-            print(f'The radius is: {radius}\n')
-            print(f'Theta is: {theta_loc*180.0/math.pi:.3f}\n')
-            x_loc = radius*np.cos(theta_loc) - radius    
-            y_loc = radius*np.sin(theta_loc)
-        elif type == 'linear':
-            x_loc = 0.0
-            y_loc = dist_lin
-            theta_loc = 0.0
-        else: #angular
-            x_loc = 0.0
-            y_loc = 0.0
-            theta_loc = dist_theta
-
-        goal_local = np.array([[np.cos(theta_loc), -np.sin(theta_loc), x_loc], 
-                                [np.sin(theta_loc), np.cos(theta_loc), y_loc], 
-                                [0, 0, 1]])
-
-        np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-
-        return goal_local   
-
-    '''
-    Create waypoints: create equidistant waypoints in global coordinates, each as goals for server to complete
-        - Moreover, this would take a larger goal (e.g. quarter circle) and break it down to smaller goals
-        - Also, the global goal returned on one iteration can serve as the pose in the next iteration 
-            to easily make consecutive equidistant waypoints
-        - Also returns angle increments as it's hard to calculate RPY off of SO(2)
-        Inputs: 
-            - type: circular, linear, or other(i.e. angular)
-            - total_linear: total linear distance
-            - total_theta: total angular distance
-            - num_points: number of points
-            - (x, y, theta): current robot pose in Cartesian global coordinates 
-        Outputs: waypoints [(SE(2) as np.array.flatten(), linear increment, angle increment, global theta)]
-    '''
-    def create_waypoints(self, type, total_linear, total_theta, num_points, x, y, theta):
-        waypoints = []
-        dist_lin = total_linear/num_points
-        dist_theta = total_theta/num_points 
-        #Create initial SE(2)
-        SE_2 = np.array([[np.cos(theta), -np.sin(theta), x], 
-                    [np.sin(theta), np.cos(theta), y],
-                    [0.0, 0.0, 1.0]], dtype=np.float32)
-        goal_global = SE_2
-
-        #Create local goal to repeatedly right-multiply to robot pose to accumulate waypoints
-        goal_local = self.create_local_goal(type, dist_lin, dist_theta)
-        np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-        print(f"====Initial Robot Pose======\n{goal_global}\n")
-        print(f'====local waypoint goal for type {type}, repeated {num_points} times======\n{goal_local}\n')
-
-        for i in range(num_points):
-            #calculate global points in Cartesian
-            goal_global = (goal_global@goal_local).astype(dtype=np.float32)
-            #add the increment to the global theta
-            theta += dist_theta
-            theta -= (2*math.pi*(theta>math.pi))
-            waypoints.append((goal_global.flatten(), dist_lin, dist_theta, theta))
-
-        return waypoints
+########################################################################################################################  
 
     '''
     Create all goals: create all subgoals and their respective waypoints
@@ -308,7 +236,7 @@ class NavClientNode(Node):
 
             if self.type in (1, 2): #== 2, 3: #'square'
             #Straight motion
-                waypoints = self.create_waypoints('linear', dist_lin, dist_theta, num_waypoints, x, y, theta)
+                waypoints = create_waypoints('linear', dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
                 #Set x,y to the last waypoint (last waypoint entry(-1), SE(2) matrix [0], and then x, y [2] and [5])
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
@@ -318,20 +246,20 @@ class NavClientNode(Node):
 
             #Turn motion
                 if self.type == 1: #sharp turns
-                    waypoints = self.create_waypoints('angular', 0.0, math.pi/2, 1, x, y, theta)
+                    waypoints = create_waypoints('angular', 0.0, math.pi/2, 1, x, y, theta)
                     goals_queue.append(waypoints)
                     x, y = waypoints[-1][0][2], waypoints[-1][0][5]
                     theta += math.pi/(2*num_waypoints)
                     theta -= (2*math.pi*(theta>math.pi))
                 else: #smooth turns
-                    waypoints = self.create_waypoints('circular', dist_circ_lin, math.pi/2, 1, x, y, theta)
+                    waypoints = create_waypoints('circular', dist_circ_lin, math.pi/2, 1, x, y, theta)
                     goals_queue.append(waypoints)
                     x, y = waypoints[-1][0][2], waypoints[-1][0][5]
                     theta += math.pi/(2*num_waypoints)
                     theta -= (2*math.pi*(theta>math.pi))
             #circular/angular        
             else:
-                waypoints = self.create_waypoints(self.type, dist_lin, dist_theta, num_waypoints, x, y, theta)
+                waypoints = create_waypoints(self.type, dist_lin, dist_theta, num_waypoints, x, y, theta)
                 goals_queue.append(waypoints)
                 #Reset the pose to make it equal to the goal pose, to feed into next iteration
                 x, y = waypoints[-1][0][2], waypoints[-1][0][5]
@@ -376,9 +304,9 @@ class NavClientNode(Node):
             - type: circular, linear, or angular 
             - current_goal: the current goal ID in order to stack goal ID of different motions
             - repeat: how many times to perform the motion (1 for no repeat, 2 for doing it twice, etc...)
-        Outputs: None
+        Outputs: int (length of goal queue)
     '''
-    def send_all_nav_goals(self, current_goal, repeat=1):
+    def send_all_nav_goals(self, current_goal, repeat=1)->int:
         # goals_queue = self.create_all_goals(type_)
         goals_queue = self.create_all_goals()
         #repeat n times

@@ -2,7 +2,7 @@
 
 type: 'square'  #circular/square
 
-use_PID: 1
+use_PID: 0
 
 line:
   num_points: 10
