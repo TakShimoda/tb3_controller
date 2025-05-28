@@ -19,10 +19,11 @@ def create_local_goal(type, dist_lin, dist_theta):
         #use polar coordinates
         radius = dist_lin/dist_theta
         theta_loc = dist_theta
+        sign = dist_theta/abs(dist_theta)
         print(f'The radius is: {radius}\n')
         print(f'Theta is: {theta_loc*180.0/math.pi:.3f}\n')
-        x_loc = radius*np.cos(theta_loc) - radius    
-        y_loc = radius*np.sin(theta_loc)
+        x_loc = (radius*np.cos(theta_loc) - radius)*sign    
+        y_loc = radius*np.sin(theta_loc)*sign
     elif type == 'linear':
         x_loc = 0.0
         y_loc = dist_lin
@@ -39,7 +40,6 @@ def create_local_goal(type, dist_lin, dist_theta):
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
     return goal_local   
-
 
 '''
 Create waypoints: create equidistant waypoints in global coordinates, each as goals for server to complete

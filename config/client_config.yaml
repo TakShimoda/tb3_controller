@@ -5,7 +5,7 @@
 #2: square (smooth turns)
 #3: angular
   #Note: circle and angular also define two of the three primitive motions (along with linear)
-type: 0
+type: 1
 
 square:
   dist: 1.0 #in m

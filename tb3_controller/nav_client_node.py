@@ -18,7 +18,7 @@ from tb3_controller.motion_func import create_waypoints
 #Non-ROS imports
 import argparse, math, threading, time, yaml
 import numpy as np
-
+import pandas as pd
 
 '''
 TODO: Make certain functions not node functions but simple functions:
@@ -39,7 +39,7 @@ class NavClientNode(Node):
         Inputs: 
         Outputs: None
     '''
-    def __init__(self, name, client_config):
+    def __init__(self, name, client_config, paths_csv):
         super().__init__(name + '_nav_client_node')
 
         #Class members for communicating with server
@@ -47,6 +47,9 @@ class NavClientNode(Node):
         self.log_msg = ''                       #Store log message in case it's the last robot.
         self.last_time = TimeStamp              #Time for last robot
         self.name = name                        #Name of robot
+
+        #csv of paths
+        self.paths_csv = paths_csv
 
         #Motion parameters
         self.name = name
@@ -179,6 +182,34 @@ class NavClientNode(Node):
 #################### MOTION FUNCTIONS ####################
 ########################################################################################################################  
 
+    def create_goals_from_csv(self):
+        df = pd.read_csv(self.paths_csv, header=0)
+        # initial poses
+        # with self.thread_lock:
+        #     x = -self.pose_y
+        #     y = self.pose_x
+        #     theta = self.pose_theta
+        x, y, theta = 0, 0, 0
+        dist_lin = 0
+        num_waypoints = 1
+        goals_queue = []
+        for _, row in df.iterrows():
+            motion_type = {0: 'linear', 1: 'angular', 2: 'circular'}[row['type']]
+            dist_theta = row['theta']*math.pi/180.0
+            if motion_type in ('linear', 'angular'):
+                dist_lin = row['x']
+            else:
+                dist_lin = dist_theta*row['x']
+            waypoints = create_waypoints(motion_type, dist_lin, dist_theta, num_waypoints, x, y, theta)
+            print(waypoints[-1][0].reshape(3, 3))
+
+            #Set x,y to the last waypoint (last waypoint entry(-1), SE(2) matrix [0], and then x, y [2] and [5])
+            x, y = waypoints[-1][0][2], waypoints[-1][0][5]
+            #Update theta to what it would be at the end of the waypoints
+            theta += dist_theta
+            theta -= (2*math.pi*(theta>math.pi))
+            goals_queue.append(waypoints)
+        return goals_queue
     '''
     Create all goals: create all subgoals and their respective waypoints
         - get the robot pose (with a service asking for the pose one time)
@@ -189,8 +220,8 @@ class NavClientNode(Node):
     def create_all_goals(self):
         #Initialize parameters
         if self.type == 0: #'circular'
-            dist_lin =  self.client_config['circ']['rad']*self.client_config['circ']['angle']*math.pi/180.0
             dist_theta = self.client_config['circ']['angle']*math.pi/180.0
+            dist_lin =  self.client_config['circ']['rad']*dist_theta
             #If distance is less/equal to 360 degrees
             if dist_theta <= math.pi:
                 num_goals = int(2*math.pi//dist_theta) #number of subarcs to take
@@ -301,14 +332,14 @@ class NavClientNode(Node):
     '''
     Send all navigation goals
         Inputs: 
-            - type: circular, linear, or angular 
             - current_goal: the current goal ID in order to stack goal ID of different motions
             - repeat: how many times to perform the motion (1 for no repeat, 2 for doing it twice, etc...)
         Outputs: int (length of goal queue)
     '''
     def send_all_nav_goals(self, current_goal, repeat=1)->int:
         # goals_queue = self.create_all_goals(type_)
-        goals_queue = self.create_all_goals()
+        goals_queue = self.create_goals_from_csv()
+        #goals_queue = self.create_all_goals()
         #repeat n times
         goals_queue = goals_queue*repeat
         self.get_logger().info(f'Repeating trajectory {repeat} times.')
