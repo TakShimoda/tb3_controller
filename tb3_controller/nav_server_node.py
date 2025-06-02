@@ -48,6 +48,8 @@ class NavServerNode(Node):
         self.goal_handle: ServerGoalHandle = None   #Current goal handle
         self.velocity_sign = 1.0                    #W09 has reversed polarity
         self.is_circle = lambda x, w: (abs(w) >= 0.05 and abs(x) >= 0.05)  #check if motion is circular          
+        self.adjust_limit = lambda x, lim: (abs(x)>lim)*(abs(x)-lim) #constrain values to limit (for velocities)
+        self.sign = lambda x:x/abs(x) if x!=0 else 0    #extract sign from value, while making sure not to divide by zero
         if self.name == 'W09':
             self.velocity_sign = 1.0#-1.0
 
@@ -126,6 +128,98 @@ class NavServerNode(Node):
         return response
 
     '''
+    Adjust velocities: Adjust linear/angular velocities to proper limits/values
+        Inputs: goal_x, goal_theta
+        Outputs: None
+    '''  
+    def adjust_velocities(self, goal_x, goal_theta):
+        self.cmd_vel.linear.x = goal_x/self.delay
+        self.cmd_vel.angular.z = goal_theta/self.delay
+        
+        #If circle, define angular velocity by w=v/r.
+        
+        if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
+            goal_radius = abs(goal_x/goal_theta)
+            self.cmd_vel.angular.z = self.sign(goal_theta)*self.cmd_vel.linear.x/goal_radius
+            self.get_logger().info(f'Circular motion with radius {goal_radius},'
+                        f'v: {self.cmd_vel.linear.x:.3f}, w: {self.cmd_vel.angular.z:.3f}')
+
+        # If velocities > limits, subtract to set it to the limits. 
+            # For linear, it's 0.18. 
+            # Angle has two limits: 0.18 for linear+angular motion, and 2.6 which is the absolute limit
+            # Don't limit angular to 0.18 if it's just turning
+            # Adjust the absolute values, then add the +/- sign back
+
+        self.cmd_vel.linear.x -= self.sign(self.cmd_vel.linear.x)*\
+            self.adjust_limit(self.cmd_vel.linear.x, self.x_limit)
+        self.cmd_vel.angular.z -= self.sign(self.cmd_vel.angular.z)*\
+            self.adjust_limit(self.cmd_vel.angular.z, self.theta_limit_turn)
+
+        #if circular, make extra adjustments
+        if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
+            self.get_logger().info('Current linear and angular velocities are: '
+                                    f'{self.cmd_vel.linear.x:.3f}, {self.cmd_vel.angular.z:.3f} ' 
+                                    'for circular motion after limits have been applied')
+
+            # First, limit angular velocity to the 0.18 limit
+            self.cmd_vel.angular.z -= self.sign(self.cmd_vel.angular.z)*\
+                self.adjust_limit(self.cmd_vel.angular.z, self.theta_limit)
+            # Correct for when v=w=0.18 (circ of radius 1), but we want smaller radius
+            if goal_radius < abs(self.cmd_vel.linear.x/self.cmd_vel.angular.z):
+                # Make the linear velocity slower
+                self.cmd_vel.linear.x = abs(self.cmd_vel.angular.z*goal_radius)\
+                    *self.sign(self.cmd_vel.linear.x)
+                self.get_logger().info(f'Decreasing linear velocity to {self.cmd_vel.linear.x:.3f} for circular motion')
+            # Correct for when v=w=0.18 (circ of radius 1), but we want larger radius
+            elif goal_radius > abs(self.cmd_vel.linear.x/self.cmd_vel.angular.z):
+                # Make the angular velocity slower
+                self.cmd_vel.angular.z = abs(self.cmd_vel.linear.x/goal_radius)\
+                    *self.sign(self.cmd_vel.angular.z)
+                self.get_logger().info(f'Decreasing angular velocity to {self.cmd_vel.angular.z:.3f} for circular motion')
+
+        self.get_logger().info(f'After correction. v: {self.cmd_vel.linear.x:.3f}, w: {self.cmd_vel.angular.z:.3f}')
+
+
+    '''
+    Move basic: move robot before PID
+        Inputs: goal_x, goal_theta
+        Outputs: None
+    '''  
+    def move_basic(self, goal_x, goal_theta, goal_theta_global):
+        # If straight line, do the straight line motion with PID correction for angles
+        if (abs(self.cmd_vel.angular.z) <= 0.001 and abs(self.cmd_vel.linear.x) >= 0.02):
+            with self.thread_lock:
+                diff_theta = goal_theta_global - self.pose_theta 
+            self.PID_straight(goal_x, diff_theta, goal_theta_global)
+        # If turning/circular motion
+        else:
+            # If delay isn't long enough given the velocity, extend it
+            if abs(self.cmd_vel.linear.x) >= 0.02: #if straight line/circle
+                if abs(self.cmd_vel.linear.x*self.delay) < abs(goal_x):
+                    delay = goal_x/self.cmd_vel.linear.x
+                else:
+                    delay = self.delay 
+            else: #angular turn
+                if abs(self.cmd_vel.angular.z*self.delay) < abs(goal_theta):
+                    delay = goal_theta/self.cmd_vel.angular.z
+                else:
+                    delay = self.delay
+            
+            self.get_logger().info(
+                f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, w = {self.cmd_vel.angular.z:.3f} for {delay:.3f} seconds')
+            
+            if self.name[0] == 'W':
+                with self.thread_lock:
+                    delay = self.scale_omega(delay)
+            self.vel_publisher.publish(self.cmd_vel)
+            time.sleep(delay)
+
+        #Reset to zero
+        self.cmd_vel.linear.x = 0.0
+        self.cmd_vel.angular.z = 0.0
+        self.vel_publisher.publish(self.cmd_vel)
+
+    '''
     Execute Callback: Execute the goal
         Input: goal_handle: ServerGoalHandle
         - goals are already in the local frame, so no differential calculation is needed
@@ -157,83 +251,11 @@ class NavServerNode(Node):
         # First do primitive calculated motions, then finish with P-controller
         self.get_logger().info('Initiating basic motion control...')
 
-        self.cmd_vel.linear.x = goal_x/self.delay
-        self.cmd_vel.angular.z = goal_theta/self.delay
-        
-        #If circle, define angular velocity by w=v/r.
-        
-        if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
-            goal_radius = goal_x/goal_theta
-            self.cmd_vel.angular.z = self.cmd_vel.linear.x/goal_radius
-            self.get_logger().info(f'Circular motion with radius {goal_radius},'
-                                    f'v: {self.cmd_vel.linear.x:.3f}, w: {self.cmd_vel.angular.z:.3f}')
-        # else:
-        #     self.cmd_vel.angular.z = goal_theta/self.delay
+        # Adjust the velocities to appropriate values/limits
+        self.adjust_velocities(goal_x, goal_theta)
 
-        # If velocities > limits, subtract to set it to the limits. 
-            # For linear, it's 0.18. 
-            # Angle has two limits: 0.18 for linear+angular motion, and 2.6 which is the absolute limit
-            # Don't limit angular to 0.18 if it's just turning
-        self.cmd_vel.linear.x -= (self.cmd_vel.linear.x>self.x_limit)*(self.cmd_vel.linear.x-self.x_limit)
-        self.cmd_vel.angular.z -= \
-            (self.cmd_vel.angular.z>self.theta_limit_turn)*(self.cmd_vel.angular.z-self.theta_limit_turn)
-        
-        #if abs(self.cmd_vel.linear.x) >= 0.02: #if circular
-        if self.is_circle(self.cmd_vel.linear.x, self.cmd_vel.angular.z):
-            
-            self.get_logger().info('Current linear and angular velocities are: '
-                                    f'{self.cmd_vel.linear.x:.3f}, {self.cmd_vel.angular.z:.3f} ' 
-                                    'for circular motion after limits have been applied')
-
-            # First, limit angular velocity to the 0.18 limit
-            self.cmd_vel.angular.z -= (self.cmd_vel.angular.z>self.theta_limit)*(self.cmd_vel.angular.z-self.theta_limit)
-            # Correct for when v=w=0.18 (circ of radius 1), but we want smaller radius
-            if goal_radius < (self.cmd_vel.linear.x/self.cmd_vel.angular.z):
-                # Make the linear velocity slower
-                self.cmd_vel.linear.x = self.cmd_vel.angular.z*goal_radius
-                self.get_logger().info(f'Decreasing linear velocity to {self.cmd_vel.linear.x:.3f} for circular motion')
-            # Correct for when v=w=0.18 (circ of radius 1), but we want larger radius
-            elif goal_radius > (self.cmd_vel.linear.x/self.cmd_vel.angular.z):
-                # Make the angular velocity slower
-                #self.cmd_vel.linear.x = self.cmd_vel.angular.z*goal_radius
-                self.cmd_vel.angular.z = self.cmd_vel.linear.x/goal_radius
-                self.get_logger().info(f'Decreasing angular velocity to {self.cmd_vel.angular.z:.3f} for circular motion')
-
-        self.get_logger().info(f'After correction. v: {self.cmd_vel.linear.x:.3f}, w: {self.cmd_vel.angular.z:.3f}')
-
-        # If straight line, do the straight line motion with PID correction for angles
-        if (abs(self.cmd_vel.angular.z) <= 0.001 and abs(self.cmd_vel.linear.x) >= 0.02):
-            with self.thread_lock:
-                diff_theta = goal_theta_global - self.pose_theta 
-            self.PID_straight(goal_x, diff_theta, goal_theta_global)
-        # If turning/circular motion
-        else:
-            # If delay isn't long enough given the velocity, extend it
-            if abs(self.cmd_vel.linear.x) >= 0.02: #if straight line/circle
-                if self.cmd_vel.linear.x*self.delay < goal_x:
-                    delay = goal_x/self.cmd_vel.linear.x
-                else:
-                    delay = self.delay 
-            else: #angular turn
-                if self.cmd_vel.angular.z*self.delay < goal_theta:
-                    delay = goal_theta/self.cmd_vel.angular.z
-                else:
-                    delay = self.delay
-            
-            self.get_logger().info(
-                f'Moving with speeds v = {self.cmd_vel.linear.x:.3f}, w = {self.cmd_vel.angular.z:.3f} for {delay:.3f} seconds')
-            
-            if self.name[0] == 'W':
-                with self.thread_lock:
-                    delay = self.scale_omega(delay)
-            self.vel_publisher.publish(self.cmd_vel)
-
-            time.sleep(delay)
-
-        #Reset to zero
-        self.cmd_vel.linear.x = 0.0
-        self.cmd_vel.angular.z = 0.0
-        self.vel_publisher.publish(self.cmd_vel)
+        # Perform basic motion (no PID for circular/angular, or linear with PID for orientation)
+        self.move_basic(goal_x, goal_theta, goal_theta_global)
 
         #Calculate the remaining difference between current and goal pose
         #Convert the goal se(2) from cartesian to vicon (i.e. x^v = y^p, y^v = -x^p)
@@ -261,11 +283,6 @@ class NavServerNode(Node):
         #Set final goal state
         goal_handle.succeed()
 
-        #Set and return the result
-        # with self.thread_lock:
-        #     result.x_final = self.pose_x
-        #     result.y_final = self.pose_y
-        #     result.theta_final = self.pose_theta
         result.goal_id = goal_id
         result.wp_id = wp_id
 

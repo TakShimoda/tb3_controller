@@ -7,6 +7,14 @@
   #Note: circle and angular also define two of the three primitive motions (along with linear)
 type: 1
 
+# how many times to repeat motion
+repeat: 2
+
+# use csv trajectories (0/1 F/T)? 
+use_csv: 1
+# if so, choose which csv file to use
+csv_file: 'grid.csv'
+
 square:
   dist: 1.0 #in m
   num_points: 1

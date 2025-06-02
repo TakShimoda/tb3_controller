@@ -17,7 +17,7 @@ Create local goal: create local goal once, to repeatedly right-multiply into ini
 def create_local_goal(type, dist_lin, dist_theta):
     if type == 'circular':
         #use polar coordinates
-        radius = dist_lin/dist_theta
+        radius = dist_lin/abs(dist_theta)
         theta_loc = dist_theta
         sign = dist_theta/abs(dist_theta)
         print(f'The radius is: {radius}\n')

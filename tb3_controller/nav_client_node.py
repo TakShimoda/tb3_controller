@@ -50,6 +50,7 @@ class NavClientNode(Node):
 
         #csv of paths
         self.paths_csv = paths_csv
+        #self.create_goals_from_csv()
 
         #Motion parameters
         self.name = name
@@ -60,6 +61,8 @@ class NavClientNode(Node):
         self.pose_x = 0.0
         self.pose_y = 0.0
         self.pose_theta = 0.0
+        self.repeat = self.client_config['repeat']
+        self.use_csv = self.client_config['use_csv']
 
         #Misc parameters
         self.thread_lock = threading.Lock()
@@ -185,11 +188,11 @@ class NavClientNode(Node):
     def create_goals_from_csv(self):
         df = pd.read_csv(self.paths_csv, header=0)
         # initial poses
-        # with self.thread_lock:
-        #     x = -self.pose_y
-        #     y = self.pose_x
-        #     theta = self.pose_theta
-        x, y, theta = 0, 0, 0
+        with self.thread_lock:
+            x = -self.pose_y
+            y = self.pose_x
+            theta = self.pose_theta
+        # x, y, theta = 0, 0, 0
         dist_lin = 0
         num_waypoints = 1
         goals_queue = []
@@ -199,9 +202,9 @@ class NavClientNode(Node):
             if motion_type in ('linear', 'angular'):
                 dist_lin = row['x']
             else:
-                dist_lin = dist_theta*row['x']
+                dist_lin = abs(dist_theta)*row['x']
             waypoints = create_waypoints(motion_type, dist_lin, dist_theta, num_waypoints, x, y, theta)
-            print(waypoints[-1][0].reshape(3, 3))
+            #print(waypoints[-1][0].reshape(3, 3))
 
             #Set x,y to the last waypoint (last waypoint entry(-1), SE(2) matrix [0], and then x, y [2] and [5])
             x, y = waypoints[-1][0][2], waypoints[-1][0][5]
@@ -325,7 +328,7 @@ class NavClientNode(Node):
         current_goal = 0
         #current_goal = self.send_all_nav_goals('angular', current_goal)
         #Then send the specified motion
-        current_goal = self.send_all_nav_goals(current_goal, 1)
+        current_goal = self.send_all_nav_goals(current_goal)
         self.timer.cancel()
        # self.get_logger().info(f'Completed all motion. {self.name} finished.')
 
@@ -336,13 +339,15 @@ class NavClientNode(Node):
             - repeat: how many times to perform the motion (1 for no repeat, 2 for doing it twice, etc...)
         Outputs: int (length of goal queue)
     '''
-    def send_all_nav_goals(self, current_goal, repeat=1)->int:
+    def send_all_nav_goals(self, current_goal)->int:
         # goals_queue = self.create_all_goals(type_)
-        goals_queue = self.create_goals_from_csv()
-        #goals_queue = self.create_all_goals()
+        if self.use_csv:
+            goals_queue = self.create_goals_from_csv()
+        else:
+            goals_queue = self.create_all_goals()
         #repeat n times
-        goals_queue = goals_queue*repeat
-        self.get_logger().info(f'Repeating trajectory {repeat} times.')
+        goals_queue = goals_queue*self.repeat
+        self.get_logger().info(f'Repeating trajectory {self.repeat} times.')
         for goal_id, goals in enumerate(goals_queue):
             for wp_id, waypoints in enumerate(goals):
                 self.send_nav_goal(waypoints, goal_id+current_goal, wp_id)
