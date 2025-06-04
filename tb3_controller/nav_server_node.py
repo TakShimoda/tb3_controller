@@ -405,7 +405,7 @@ class NavServerNode(Node):
                     f'Current control velocities: x = {self.cmd_vel.linear.x:.5f}, w = {self.cmd_vel.angular.z:.5f}')
                 self.timer = self.get_clock().now()
             
-            if self.get_clock().now() - self.time_ > Duration(seconds=1.2):
+            if self.get_clock().now() - self.time_ > Duration(seconds=3.0):
                 self.get_logger().error('===Time limit reached. Breaking out of PID.===')
                 break
 
@@ -439,16 +439,19 @@ class NavServerNode(Node):
         scale=0.5
 
         #Lower delay to not overshoot the goal
-        delay = self.delay*1.0
+        #delay = self.delay*1.0
+        #Scale delay inversely to length of goal
+        delay = self.delay*1.02*np.exp(-0.015*goal_x) 
 
         # Initialize prior values in PID control
         I_prior_ang = 0.0
         diff_theta_prior = 0.0
 
         # Calculate number of points given the goal distance, velocity, and delay
+        # num_points = int(goal_x//(self.cmd_vel.linear.x*self.delay))
         num_points = int(goal_x//(self.cmd_vel.linear.x*self.delay))
         remainder = goal_x/(self.cmd_vel.linear.x*self.delay) - num_points
-
+        #self.get_logger().error(f'####NUMBER OF POINTS: {num_points}####')
 
         for _ in range(num_points):
             with self.thread_lock:
