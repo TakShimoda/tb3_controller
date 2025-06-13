@@ -12,13 +12,15 @@ file_keys = {
     # Value: list of tuples: (csv file, starting pose, name on plot)
 files = {
     '2_robot_lawnmower_4x4': [
-        ("lawnmower_4x4.csv", (0, 0, 0), "lawnmower"),
-        ("lawnmower_4x4.csv", (4, 4, 180), "lawnmower2")],
+        ("lawnmower_4x4.csv", (0, 0, 90), "robot1"),
+        ("lawnmower_4x4_2.csv", (0.5, 4, 00), "robot2")
+    ],
     '2_robot_zigzag': [
         ("zigzag.csv", (0, 0, 0), "zigzag1"),
-        ("zigzag.csv", (4, 4, 180), "zigzag2")],
+        ("zigzag.csv", (4, 4, 180), "zigzag2")
+    ],
     '2_robot_lawnmower_5x4': [
         ("lawnmower_5x4.csv", (0, 0, 0), "robot1"),
-        ("lawnmower_4x5.csv", (0, 4, 0), "robot2")
+        ("lawnmower_4x5.csv", (1, 4, 0), "robot2")
     ]
 }

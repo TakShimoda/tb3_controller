@@ -61,8 +61,8 @@ def create_waypoints(type, total_linear, total_theta, num_points, x, y, theta):
     dist_theta = total_theta/num_points 
     #Create initial SE(2)
     SE_2 = np.array([[np.cos(theta), -np.sin(theta), x], 
-                [np.sin(theta), np.cos(theta), y],
-                [0.0, 0.0, 1.0]], dtype=np.float32)
+                    [np.sin(theta), np.cos(theta), y],
+                    [0.0, 0.0, 1.0]], dtype=np.float32)
     goal_global = SE_2
 
     #Create local goal to repeatedly right-multiply to robot pose to accumulate waypoints

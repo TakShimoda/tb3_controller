@@ -16,6 +16,7 @@ basic:
 time:
   initial_delay: 2.0
   cmd_delay: 0.05
+  PID_limit: 5.0 #PID time limit
 
 #for most
 limits:
