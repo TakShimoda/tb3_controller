@@ -8,14 +8,14 @@ import trajectories as tr
 # --------- SETTINGS ---------
 # List of files to plot, along with their starting coordinates
 # +X = 0 degrees, ccw from here
-traj_key = tr.file_keys[0]
+traj_key = tr.file_keys[3]
 files = tr.files[traj_key]
 
 arrow_stride = 1      # Plot arrow every Nth point to avoid clutter
 # Choose if we want to plot arrows for orientation
     # 0: None, 1: arrows, 2: quiver, 3: plot at waypoints
-plot_arrows = 0
-plot_waypoints = False
+plot_arrows = 3
+plot_waypoints = True
 plot_time = True    # Plot time on waypoints?
 linestyles = ['-', '--', '-.', ':']
 
@@ -85,7 +85,7 @@ plt.figure(figsize=(8, 8))
 colors = [
     'blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink',
     'gray', 'olive', 'cyan', '#1f77b4', '#ff7f0e', '#2ca02c',
-    '#d62728', '#9467bd'
+    "#d62728", '#9467bd'
 ]
 
 for idx, (file, origin, label) in enumerate(files):
@@ -139,7 +139,7 @@ for idx, (file, origin, label) in enumerate(files):
             dx = 0.2 * np.cos(thetas[i])  # arrow length scaled for display
             dy = 0.2 * np.sin(thetas[i])
             plt.arrow(xs[i], ys[i], dx, dy, head_width=0.1, head_length=0.1, 
-                    fc=colors(idx), ec=colors(idx))
+                    fc=colors[idx], ec=colors[idx])
     elif plot_arrows == 2:
         # Subsample for quiver
         xs_sub = xs[::arrow_stride]
