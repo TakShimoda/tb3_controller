@@ -8,7 +8,7 @@
 type: 1
 
 # how many times to repeat motion
-repeat: 2
+repeat: 10
 
 # use csv trajectories (0/1 F/T)? 
 use_csv: 1

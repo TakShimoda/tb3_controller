@@ -5,7 +5,9 @@ file_keys = {
     0: '2_robot_lawnmower_4x4',
     1: '2_robot_zigzag',
     2: '2_robot_lawnmower_5x4',
-    3: '3_robot_t1'
+    3: '3_robot_grid',
+    4: '3_robot_t1',
+    5: 'star'
 }
 
 # Dictionary containing the different multi-robot trajectory scenarios
@@ -24,9 +26,17 @@ files = {
         ("lawnmower_5x4.csv", (0, 0, 0), "robot1"),
         ("lawnmower_4x5.csv", (1, 4, 0), "robot2")
     ],
+    '3_robot_grid': [
+        ("grid_v1.csv", (0, 0, 0), "r1"),
+        ("grid_v1.csv", (0, 1, 0), "r2"),
+        ("grid_v1.csv", (0, 2, 0), "r3")
+    ],
     '3_robot_t1': [
         ("t1_r1.csv", (0, 0, 0), "r1"),
         ("t1_r2.csv", (-1, -1, 0), "r2"),
-        ("t1_r3.csv", (1, 1, 0), "r3")
+        ("t1_r3v2.csv", (2, 2, 0), "r3")
+    ],
+    'star': [
+        ("star.csv", (0, 0, 0), "r1")
     ]
 }
