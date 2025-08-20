@@ -352,7 +352,7 @@ class NavClientNode(Node):
             for wp_id, waypoints in enumerate(goals):
                 self.send_nav_goal(waypoints, goal_id+current_goal, wp_id)
                 #sleep to prevent first two goals executing at once
-                time.sleep(0.05)
+                time.sleep(0.08)
             self.get_logger().info(f'Finished sending goal {goal_id}')
         self.get_logger().info(f'Finished sending all goals for {self.type_name} motion.')
         return len(goals_queue)

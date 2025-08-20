@@ -472,7 +472,7 @@ class NavServerNode(Node):
     def PID_straight(self, goal_x, diff_theta, setpoint_theta):
 
         # Scaling factor, as movement shouldn't diverge from being straight
-        scale=0.3 #0.5, but scaled down for B01
+        scale=0.5 #0.5, but scaled down for B01
 
         #Lower delay to not overshoot the goal
         #delay = self.delay*1.0

@@ -13,7 +13,7 @@ repeat: 10
 # use csv trajectories (0/1 F/T)? 
 use_csv: 1
 # if so, choose which csv file to use
-csv_file: 'lawnmower_4x5.csv'
+csv_file: 'grid_v2.csv'
 
 square:
   dist: 1.0 #in m
