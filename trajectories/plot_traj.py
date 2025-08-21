@@ -8,7 +8,7 @@ import trajectories as tr
 # --------- SETTINGS ---------
 # List of files to plot, along with their starting coordinates
 # +X = 0 degrees, ccw from here
-traj_key = tr.file_keys[4]
+traj_key = tr.file_keys[5]
 files = tr.files[traj_key]
 
 arrow_stride = 1      # Plot arrow every Nth point to avoid clutter
